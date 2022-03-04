@@ -2,6 +2,7 @@ import numpy as np
 import random as rd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+from PIL import Image as im
 # import sys
 
 class minesweeper():
@@ -10,6 +11,7 @@ class minesweeper():
         self.rows = n
         self.cols = m
         self.grid = np.zeros((n,m))
+        self.pix = self.grid
         self.mineWeight = weight*n*m
         self.click = []
         self.history = []
@@ -18,7 +20,7 @@ class minesweeper():
         self.mineCount = len(self.grid[self.grid == -1])
         self.nonCount = self.rows*self.cols - self.mineCount
         self.found = 0
-        self.view = -9*np.ones((self.rows, self.cols))
+        self.view = -9*np.ones((self.rows, self.cols)).astype(np.int16)
         self.wins = 0
 
         for i,_ in np.ndenumerate(self.grid):
@@ -65,6 +67,21 @@ class minesweeper():
         self.coord = coord
         # return
     
+    def transform(self, grid):
+        self.pix = grid
+        for i,p in np.ndenumerate(self.pix):
+            if p == -1:
+                self.pix[i] = 255
+            else:
+                self.pix[i] = 25*abs(p)
+        self.pix = self.pix.astype(np.uint8)
+
+    def impix(self, grid, show = True):
+        self.transform(grid)
+        img = im.fromarray(self.pix)
+        if show:
+            img.show()
+
     def check(self):
         coord = self.coord
         if self.grid[coord] == -1:
@@ -122,6 +139,7 @@ class minesweeper():
                     print('BOOM!\nGame Over')
                     if mode == 'auto':
                         print(f'Found: {self.found}')
+                    self.view[inp] = self.grid[inp]
                     break
                 elif self.history.count(inp) > 1:
                     print('Duplicate entry. Try again')
@@ -135,11 +153,13 @@ class minesweeper():
 
 if __name__ == '__main__':
     score = []
-    for i in range(1):
-        # print(g.grid)
+    for i in range(30):
         g = minesweeper(10,10,.175)
         g.play(mode = 'auto', show = False)
-        score.append(g.found)
+        if g.found > 15:
+            g.impix(g.view)
+            break
+        # score.append(g.found)
     # print(f'Max score: {max(score)}\nWins: {g.wins}')
     # plt.hist(score,20)
     # plt.show()
