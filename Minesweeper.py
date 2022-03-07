@@ -7,12 +7,12 @@ from PIL import Image as im
 
 class minesweeper():
 
-    def __init__(self, n, m, weight):
+    def __init__(self, n, m, mineWeight):
         self.rows = n
         self.cols = m
         self.grid = np.zeros((n,m))
         self.pix = self.grid
-        self.mineWeight = weight*n*m
+        self.mineWeight = mineWeight*n*m
         self.click = []
         self.history = []
         self.coord = ()
@@ -154,7 +154,7 @@ class minesweeper():
 if __name__ == '__main__':
     score = []
     for i in range(30):
-        g = minesweeper(10,10,.175)
+        g = minesweeper(5,5,.175)
         g.play(mode = 'auto', show = False)
         if g.found > 15:
             g.impix(g.view)
