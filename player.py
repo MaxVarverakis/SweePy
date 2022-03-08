@@ -1,5 +1,9 @@
-# https://github.com/pytorch/tutorials/blob/master/intermediate_source/reinforcement_q_learning.py
-# https://github.com/nevenp/dqn_flappy_bird/blob/master/dqn.py
+'''
+References:
+
+https://github.com/pytorch/tutorials/blob/master/intermediate_source/reinforcement_q_learning.py
+https://github.com/nevenp/dqn_flappy_bird/blob/master/dqn.py
+'''
 
 import numpy as np
 import torch
@@ -87,11 +91,11 @@ def train(n, m, model, start):
     # initialize replay memory
     memory = ReplayMemory(model.replay_memory_size)
 
-    iteration = 0
-
     # initial action
-    action = torch.rand([model.number_of_actions])
-    img, state, action, next_state, reward, terminal = game_state.move(action)
+    action = ms.choose()
+    img, action, next_state, reward, terminal = game_state.move(action)
+    state = imTensor(img)
+
     
     # if len(memory) < model.batch_size:
     #     return
@@ -115,6 +119,8 @@ def train(n, m, model, start):
     epsilon = model.initial_epsilon
     epsilon_decay = np.linspace(model.initial_epsilon, model.final_epsilon, model.number_of_iterations)
 
+    iteration = 0
+
     # def select_action(state):
     #     global steps_done
     #     sample = random.random()
@@ -129,3 +135,26 @@ def train(n, m, model, start):
     #             return policy_net(state).max(1)[1].view(1, 1)
     #     else:
     #         return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
+
+# main infinite loop
+    while iteration < model.number_of_iterations:
+        # get output from the neural network
+        output = model(state)[0]
+
+        # initialize action
+        action = (0,0)
+
+        # epsilon greedy exploration
+        random_action = random.random() <= epsilon
+        # if random_action:
+        #     print("Performed random action!")
+        action_index = [torch.randint(model.number_of_actions, torch.Size([]), dtype=torch.int)
+                        if random_action
+                        else torch.argmax(output)][0]
+        action = (action_index.item() % game_state.m, action_index.item() // game_state.m)
+
+        # get next state and reward
+        next_img, _, _, reward, terminal = game_state.move(action)
+        next_state = imTensor(next_img)
+
+        reward = torch.from_numpy(np.array([reward], dtype=np.float32)).unsqueeze(0)

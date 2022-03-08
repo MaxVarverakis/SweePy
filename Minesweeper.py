@@ -61,10 +61,10 @@ class minesweeper():
         if interactive:
             fig.canvas.mpl_connect('button_press_event', self.onclick)
         plt.show()
-    
+
     def move(self,action):
         # 1D index from 2D coord : index = x+y*width
-        # return img, state, action, next_state, reward, terminal
+        # return img, action, next_state, reward, terminal
         pass
     
     def transform(self, grid):
