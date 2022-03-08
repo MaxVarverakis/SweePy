@@ -1,20 +1,26 @@
 # https://github.com/pytorch/tutorials/blob/master/intermediate_source/reinforcement_q_learning.py
+# https://github.com/nevenp/dqn_flappy_bird/blob/master/dqn.py
 
+import numpy as np
 import torch
 import torch.nn as nn
+import torch.optim as optim
 import torch.nn.functional as F
 from collections import namedtuple, deque
 import random
 from itertools import count
+import os
+import time
+from Minesweeper import minesweeper as ms
 
 # if gpu is to be used
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+                        ('img', 'state', 'action', 'next_state', 'reward', 'terminal'))
 
 
-class ReplayMemory(object):
+class ReplayMemory():
 
     def __init__(self, capacity):
         self.memory = deque([],maxlen=capacity)
@@ -38,7 +44,7 @@ class DQN(nn.Module):
         self.initial_epsilon = 0.1
         self.number_of_iterations = 2000000
         self.replay_memory_size = 10000
-        self.minibatch_size = 32
+        self.batch_size = 32
 
         self.conv1 = nn.Conv2d(1,16,3,1)
         self.relu1 = F.relu()
@@ -67,3 +73,59 @@ def init_weights(m):
     if type(m) == nn.Conv2d or type(m) == nn.Linear:
         torch.nn.init.uniform(m.weight, -0.01, 0.01)
         m.bias.data.fill_(0.01)
+
+def train(n, m, model, start):
+	# define Adam optimizer
+    optimizer = optim.Adam(model.parameters(), lr=1e-6)
+
+    # initialize mean squared error loss
+    criterion = nn.MSELoss()
+
+    # instantiate game
+    game_state = ms(n,m)
+
+    # initialize replay memory
+    memory = ReplayMemory(model.replay_memory_size)
+
+    iteration = 0
+
+    # initial action
+    action = torch.rand([model.number_of_actions])
+    img, state, action, next_state, reward, terminal = game_state.move(action)
+    
+    # if len(memory) < model.batch_size:
+    #     return
+    # transitions = memory.sample(model.batch_size)
+    # # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+    # # detailed explanation). This converts batch-array of Transitions
+    # # to Transition of batch-arrays.
+    # batch = Transition(*zip(*transitions))
+
+    # # Compute a mask of non-final states and concatenate the batch elements
+    # # (a final state would've been the one after which simulation ended)
+    # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
+    #                                       batch.next_state)), device=device, dtype=torch.bool)
+    # non_final_next_states = torch.cat([s for s in batch.next_state
+    #                                             if s is not None])
+    # state_batch = torch.cat(batch.state)
+    # action_batch = torch.cat(batch.action)
+    # reward_batch = torch.cat(batch.reward)
+
+    # initialize epsilon value
+    epsilon = model.initial_epsilon
+    epsilon_decay = np.linspace(model.initial_epsilon, model.final_epsilon, model.number_of_iterations)
+
+    # def select_action(state):
+    #     global steps_done
+    #     sample = random.random()
+    #     eps_threshold = EPS_END + (EPS_START - EPS_END) * \
+    #         math.exp(-1. * steps_done / EPS_DECAY)
+    #     steps_done += 1
+    #     if sample > eps_threshold:
+    #         with torch.no_grad():
+    #             # t.max(1) will return largest column value of each row.
+    #             # second column on max result is index of where max element was
+    #             # found, so we pick action with the larger expected reward.
+    #             return policy_net(state).max(1)[1].view(1, 1)
+    #     else:
+    #         return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
