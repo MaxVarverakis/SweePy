@@ -15,14 +15,13 @@ class minesweeper():
         self.mineWeight = mineWeight*n*m
         self.click = []
         self.history = []
-        self.coord = ()
-        self.prev = ()
         self.mineCount = len(self.grid[self.grid == -1])
         self.nonCount = self.rows*self.cols - self.mineCount
         self.found = 0
         self.view = -9*np.ones((self.rows, self.cols)).astype(np.int16)
         self.wins = 0
 
+        # Create game layout
         for i,_ in np.ndenumerate(self.grid):
             if rd.randint(0,np.size(self.grid)) <= self.mineWeight:
                 self.grid[i] = -1
@@ -61,11 +60,6 @@ class minesweeper():
         if interactive:
             fig.canvas.mpl_connect('button_press_event', self.onclick)
         plt.show()
-
-    def move(self,action):
-        # 1D index from 2D coord : index = x+y*width
-        # return img, action, next_state, reward, terminal
-        pass
     
     def transform(self, grid):
         self.pix = grid
@@ -82,25 +76,33 @@ class minesweeper():
         if show:
             img.show()
 
-    def check(self):
-        coord = self.coord
+    def move(self, coord):
+        terminal = False
+        reward = 0
+        self.history.append(coord)
+        
         if self.grid[coord] == -1:
-            print('BOOM!\nGame Over')
+            print('BOOM!\nGame Over :(')
+            reward = -10
+            terminal = True
         elif self.history.count(coord) > 1:
-            print('Duplicate entry. Try again')
+            print('Duplicate entry. Try again :/')
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
+            reward = 1
         if self.found == self.nonCount:
-            print('You Win!')
-            # exit
+            print('You Win! :)')
+            reward = 10
+            terminal = True
+        
+        reward += self.found * .1
+        img = self.impix(self.view, False)
+        
+        if terminal:
+            self.__init__(self.n, self.m, self.mineWeight)
 
-    def newGame(self):
-        self.history = []
-        self.mineCount = len(self.grid[self.grid == -1])
-        self.nonCount = self.rows*self.cols - self.mineCount
-        self.found = 0
-        self.view = -9*np.ones((self.rows, self.cols))
+        return img, reward, terminal
 
     def choose(self):
         return (rd.choice(range(self.rows)),rd.choice(range(self.cols)))

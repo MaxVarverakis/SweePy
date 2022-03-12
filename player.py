@@ -12,8 +12,8 @@ import torch.optim as optim
 import torch.nn.functional as F
 from collections import namedtuple, deque
 import random
-from itertools import count
 import os
+import sys
 import time
 from Minesweeper import minesweeper as ms
 
@@ -21,7 +21,7 @@ from Minesweeper import minesweeper as ms
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple('Transition',
-                        ('img', 'state', 'action', 'next_state', 'reward', 'terminal'))
+                        ('state', 'action', 'next_state', 'reward', 'terminal'))
 
 
 class ReplayMemory():
@@ -50,6 +50,7 @@ class DQN(nn.Module):
         self.replay_memory_size = 10000
         self.batch_size = 32
 
+        # Currently configured for 5x5 pixel image inputs
         self.conv1 = nn.Conv2d(1,16,3,1)
         self.relu1 = F.relu()
         self.conv2 = nn.Conv2d(16,32,3,1)
@@ -78,7 +79,7 @@ def init_weights(m):
         torch.nn.init.uniform(m.weight, -0.01, 0.01)
         m.bias.data.fill_(0.01)
 
-def train(n, m, model, start):
+def train(model, n, m, mineWeight, start):
 	# define Adam optimizer
     optimizer = optim.Adam(model.parameters(), lr=1e-6)
 
@@ -86,34 +87,15 @@ def train(n, m, model, start):
     criterion = nn.MSELoss()
 
     # instantiate game
-    game_state = ms(n,m)
+    game_state = ms(n, m, mineWeight)
 
     # initialize replay memory
     memory = ReplayMemory(model.replay_memory_size)
 
     # initial action
     action = ms.choose()
-    img, action, next_state, reward, terminal = game_state.move(action)
+    img, reward, terminal = game_state.move(action)
     state = imTensor(img)
-
-    
-    # if len(memory) < model.batch_size:
-    #     return
-    # transitions = memory.sample(model.batch_size)
-    # # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-    # # detailed explanation). This converts batch-array of Transitions
-    # # to Transition of batch-arrays.
-    # batch = Transition(*zip(*transitions))
-
-    # # Compute a mask of non-final states and concatenate the batch elements
-    # # (a final state would've been the one after which simulation ended)
-    # non_final_mask = torch.tensor(tuple(map(lambda s: s is not None,
-    #                                       batch.next_state)), device=device, dtype=torch.bool)
-    # non_final_next_states = torch.cat([s for s in batch.next_state
-    #                                             if s is not None])
-    # state_batch = torch.cat(batch.state)
-    # action_batch = torch.cat(batch.action)
-    # reward_batch = torch.cat(batch.reward)
 
     # initialize epsilon value
     epsilon = model.initial_epsilon
@@ -148,13 +130,116 @@ def train(n, m, model, start):
         random_action = random.random() <= epsilon
         # if random_action:
         #     print("Performed random action!")
+
+        # get corresponding action from neural network output
         action_index = [torch.randint(model.number_of_actions, torch.Size([]), dtype=torch.int)
                         if random_action
                         else torch.argmax(output)][0]
         action = (action_index.item() % game_state.m, action_index.item() // game_state.m)
 
         # get next state and reward
-        next_img, _, _, reward, terminal = game_state.move(action)
+        next_img, _, _ = game_state.move(action)
+        next_state = imTensor(next_img)
+        reward = torch.from_numpy(np.array([reward], dtype=np.float32)).unsqueeze(0)
+
+        # Store the transition in memory
+        memory.push(state, action, next_state, reward, terminal)
+
+        # epsilon decay
+        epsilon = epsilon_decay[iteration]
+        
+        # sample random batch
+        transitions = memory.sample(min(model.batch_size,len(memory)))
+        
+        # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
+        # detailed explanation). This converts batch-array of Transitions
+        # to Transition of batch-arrays.
+        batch = Transition(*zip(*transitions))
+
+        # Unpack batch
+        state_batch = torch.cat(batch.state)
+        action_batch = torch.cat(batch.action)
+        reward_batch = torch.cat(batch.reward)
+        next_state_batch = torch.cat(batch.next_state)
+
+        # get output for the next state
+        next_batch = model(next_state_batch)
+
+        # set y_j to r_j for terminal state, otherwise to r_j + gamma*max(Q)
+        y_batch = torch.cat(tuple(reward_batch[i] if batch.terminal[i]
+                                  else reward_batch[i] + model.gamma * torch.max(next_batch[i])
+                                  for i in range(len(batch))))
+
+        # extract Q-value
+        q_value = torch.sum(model(state_batch) * action_batch, dim=1)
+
+
+        # returns a new Tensor, detached from the current graph, the result will never require gradient
+        y_batch = y_batch.detach()
+
+        # compute loss
+        loss = criterion(q_value, y_batch)
+
+        # backward pass
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+
+        state = next_state
+        iteration += 1
+
+        if iteration % 25000 == 0:
+            torch.save(model, "pretrained_model/current_model_" + str(iteration) + ".pth")
+        
+        print("iteration: ", iteration, "elapsed time: ", time.time() - start, "epsilon: ", epsilon, "action: ",
+              action_index.cpu().detach().numpy(), "reward: ", reward.numpy()[0][0], "Q max: ",
+              np.max(output.cpu().detach().numpy()))
+
+def test(model, n, m, mineWeight):
+    game_state = ms(n, m, mineWeight)
+
+    # initial action
+    action = ms.choose()
+    img, _, _ = game_state.move(action)
+    state = imTensor(img)
+
+    while True:
+        # get output from the neural network
+        output = model(state)[0]
+
+        # initialize action
+        action = (0,0)
+        
+        # get corresponding action from neural network output
+        action_index = torch.argmax(output)
+        action = (action_index.item() % game_state.m, action_index.item() // game_state.m)
+
+        # get next state and reward
+        next_img, _, _ = game_state.move(action)
         next_state = imTensor(next_img)
 
-        reward = torch.from_numpy(np.array([reward], dtype=np.float32)).unsqueeze(0)
+        state = next_state
+
+def main(mode, n, m, mineWeight):
+    if mode == 'test':
+        model = torch.load(
+            'pretrained_model/current_model_******.pth',
+            map_location='cpu').eval()
+        
+        test(model, n, m, mineWeight)
+
+    elif mode == 'train':
+        if not os.path.exists('pretrained_model/'):
+            os.mkdir('pretrained_model/')
+
+        model = DQN(n,m)
+
+        model.apply(init_weights)
+        start = time.time()
+
+        train(model, n, m, mineWeight, start)
+
+if __name__ == '__main__':
+    # main(sys.argv[1])
+    print(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4])
+    # main(input('train/test? '))
