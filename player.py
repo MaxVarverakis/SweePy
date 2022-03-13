@@ -22,7 +22,7 @@ from Minesweeper import minesweeper as ms
 device = torch.device("cpu")
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward', 'terminal'))
+                        ('state', 'action_index', 'next_state', 'reward', 'terminal'))
 
 
 class ReplayMemory():
@@ -131,7 +131,7 @@ def train(model, n, m, mineWeight, start):
 # main infinite loop
     while iteration < model.number_of_iterations:
         # get output from the neural network
-        output = model(state)[0]
+        output = model(state)
 
         # initialize action
         action = (0,0)
@@ -142,18 +142,27 @@ def train(model, n, m, mineWeight, start):
         #     print("Performed random action!")
 
         # get corresponding action from neural network output
-        action_index = [torch.randint(model.numActions, torch.Size([]), dtype=torch.int)
-                        if random_action
-                        else torch.argmax(output)][0]
-        action = (action_index.item() % game.cols, action_index.item() // game.cols)
+        # action_index = [torch.randint(model.numActions, torch.Size([]), dtype=torch.int)
+        #                 if random_action
+        #                 else torch.argmax(output)][0]
+        if random_action:
+            action_index = torch.tensor([[random.randrange(model.numActions)]], device = device, dtype = torch.long)
+        else:
+            with torch.no_grad():
+                # t.max(1) will return largest column value of each row.
+                # second column on max result is index of where max element was
+                # found, so we pick action with the larger expected reward.
+                action_index = output.max(1)[1].view(1, 1)
 
+        action = (action_index.item() % game.cols, action_index.item() // game.cols)
+        
         # get next state and reward
         next_img, reward, terminal = game.move(action)
         next_state = imTensor(next_img)
-        reward = torch.from_numpy(np.array([reward], dtype=np.float32)).unsqueeze(0)
+        reward = torch.tensor([reward], device = device, dtype = torch.float32).unsqueeze(0)
 
         # Store the transition in memory
-        memory.push(state, torch.tensor(action).unsqueeze(0), next_state, reward, terminal)
+        memory.push(state, action_index, next_state, reward, terminal)
 
         # epsilon decay
         epsilon = epsilon_decay[iteration]
@@ -166,29 +175,35 @@ def train(model, n, m, mineWeight, start):
         # to Transition of batch-arrays.
         batch = Transition(*zip(*transitions))
 
-        if iteration == model.number_of_iterations-1:
-            print(transitions)
+        # Debugging stuff
+        # if iteration == model.number_of_iterations-1:
+        #     print(transitions)
 
         # Unpack batch
         state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
+        action_batch = torch.cat(batch.action_index)
         reward_batch = torch.cat(batch.reward)
         next_state_batch = torch.cat(batch.next_state)
 
         # get output for the next state
-        next_batch = model(next_state_batch)
+        next_output = model(next_state_batch)
 
         # set y_j to r_j for terminal state, otherwise to r_j + gamma*max(Q)
         y_batch = torch.cat(tuple(reward_batch[i] if batch.terminal[i]
-                                  else reward_batch[i] + model.gamma * torch.max(next_batch[i])
+                                  else reward_batch[i] + model.gamma * torch.max(next_output[i])
                                   for i in range(len(batch.state))))
+        
+        # returns a new Tensor, detached from the current graph, the result will never require gradient
+        y_batch = y_batch.detach()
+
         
         # extract Q-value
         # q_value = torch.sum(model(state_batch) * action_batch)
-        q_value = model(state_batch).gather(1, action_batch)
-
-        # returns a new Tensor, detached from the current graph, the result will never require gradient
-        y_batch = y_batch.detach()
+        q_value = model(state_batch).gather(1, action_batch).squeeze(1)
+        
+        # Debugging stuff
+        # print(np.shape(model(state_batch)),np.shape(action_batch))
+        # print(q_value,y_batch)
 
         # compute loss
         loss = criterion(q_value, y_batch)
