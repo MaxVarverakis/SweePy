@@ -13,12 +13,13 @@ import torch.nn.functional as F
 from collections import namedtuple, deque
 import random
 import os
-import sys
 import time
 from Minesweeper import minesweeper as ms
 
 # if gpu is to be used
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+device = torch.device("cpu")
 
 Transition = namedtuple('Transition',
                         ('state', 'action', 'next_state', 'reward', 'terminal'))
@@ -46,37 +47,45 @@ class DQN(nn.Module):
         self.gamma = 0.99
         self.final_epsilon = 0.0001
         self.initial_epsilon = 0.1
-        self.number_of_iterations = 2000000
+        self.number_of_iterations = 3
         self.replay_memory_size = 10000
         self.batch_size = 32
 
-        # Currently configured for 5x5 pixel image inputs
-        self.conv1 = nn.Conv2d(1,16,3,1)
-        self.relu1 = F.relu()
-        self.conv2 = nn.Conv2d(16,32,3,1)
-        self.relu2 = F.relu()
-        self.fc3 = nn.Linear(1152,188)
-        self.relu3 = F.relu()
-        self.fc4 = nn.Linear(188,self.numActions)
+        # Currently tested with 10x10 pixel image inputs
+        self.conv1 = nn.Conv2d(1, 16, kernel_size = 3, stride = 1)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size = 3, stride = 1)
+        
+        # Number of Linear input connections depends on output of conv2d layers
+        # and therefore the input image size, so compute it.
+        def conv2d_size_out(size, kernel_size = 3, stride = 1):
+            return (size - (kernel_size - 1) - 1) // stride  + 1
+        convw = conv2d_size_out(conv2d_size_out(m))
+        convh = conv2d_size_out(conv2d_size_out(n))
+        linear_input_size = convw * convh * 32
+        
+        self.fc3 = nn.Linear(linear_input_size, 188)
+        self.fc4 = nn.Linear(188, self.numActions)
 
     def forward(self, x):
         x = x.to(device)
-        x = self.relu1(self.conv1(x))
-        x = self.relu2(self.conv2(x))
-        x = self.relu3(self.fc3(x))
-        x = x.view(out.size()[0], -1)
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = x.view(x.size()[0], -1)
+        x = F.relu(self.fc3(x))
         out = self.fc4(x)
 
         return out
 
 def imTensor(image):
-    image = torch.from_numpy(image)
+    # convert image data to tensor and add channel dimension
+    image = torch.reshape(torch.from_numpy(image),(1,10,10))
     image = image.to(device)
-    return image
+    # unsqueeze to add batch dimension | final image shape (B,C,H,W) : (1,1,10,10)
+    return image.unsqueeze(0).float()
 
 def init_weights(m):
     if type(m) == nn.Conv2d or type(m) == nn.Linear:
-        torch.nn.init.uniform(m.weight, -0.01, 0.01)
+        nn.init.uniform_(m.weight, -0.01, 0.01)
         m.bias.data.fill_(0.01)
 
 def train(model, n, m, mineWeight, start):
@@ -87,15 +96,16 @@ def train(model, n, m, mineWeight, start):
     criterion = nn.MSELoss()
 
     # instantiate game
-    game_state = ms(n, m, mineWeight)
+    game = ms(n, m, mineWeight)
 
     # initialize replay memory
     memory = ReplayMemory(model.replay_memory_size)
 
     # initial action
-    action = ms.choose()
-    img, reward, terminal = game_state.move(action)
-    state = imTensor(img)
+    state = imTensor(game.first_game())
+    # action = game.choose()
+    # img, _, _ = game.move(action)
+    # state = imTensor(img)
 
     # initialize epsilon value
     epsilon = model.initial_epsilon
@@ -132,18 +142,18 @@ def train(model, n, m, mineWeight, start):
         #     print("Performed random action!")
 
         # get corresponding action from neural network output
-        action_index = [torch.randint(model.number_of_actions, torch.Size([]), dtype=torch.int)
+        action_index = [torch.randint(model.numActions, torch.Size([]), dtype=torch.int)
                         if random_action
                         else torch.argmax(output)][0]
-        action = (action_index.item() % game_state.m, action_index.item() // game_state.m)
+        action = (action_index.item() % game.cols, action_index.item() // game.cols)
 
         # get next state and reward
-        next_img, _, _ = game_state.move(action)
+        next_img, reward, terminal = game.move(action)
         next_state = imTensor(next_img)
         reward = torch.from_numpy(np.array([reward], dtype=np.float32)).unsqueeze(0)
 
         # Store the transition in memory
-        memory.push(state, action, next_state, reward, terminal)
+        memory.push(state, torch.tensor(action).unsqueeze(0), next_state, reward, terminal)
 
         # epsilon decay
         epsilon = epsilon_decay[iteration]
@@ -155,6 +165,9 @@ def train(model, n, m, mineWeight, start):
         # detailed explanation). This converts batch-array of Transitions
         # to Transition of batch-arrays.
         batch = Transition(*zip(*transitions))
+
+        if iteration == model.number_of_iterations-1:
+            print(transitions)
 
         # Unpack batch
         state_batch = torch.cat(batch.state)
@@ -168,11 +181,11 @@ def train(model, n, m, mineWeight, start):
         # set y_j to r_j for terminal state, otherwise to r_j + gamma*max(Q)
         y_batch = torch.cat(tuple(reward_batch[i] if batch.terminal[i]
                                   else reward_batch[i] + model.gamma * torch.max(next_batch[i])
-                                  for i in range(len(batch))))
-
+                                  for i in range(len(batch.state))))
+        
         # extract Q-value
-        q_value = torch.sum(model(state_batch) * action_batch, dim=1)
-
+        # q_value = torch.sum(model(state_batch) * action_batch)
+        q_value = model(state_batch).gather(1, action_batch)
 
         # returns a new Tensor, detached from the current graph, the result will never require gradient
         y_batch = y_batch.detach()
@@ -191,16 +204,16 @@ def train(model, n, m, mineWeight, start):
         if iteration % 25000 == 0:
             torch.save(model, "pretrained_model/current_model_" + str(iteration) + ".pth")
         
-        print("iteration: ", iteration, "elapsed time: ", time.time() - start, "epsilon: ", epsilon, "action: ",
-              action_index.cpu().detach().numpy(), "reward: ", reward.numpy()[0][0], "Q max: ",
-              np.max(output.cpu().detach().numpy()))
+        print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, "\nAction:",
+              action, "\nReward:", reward.numpy()[0][0], "\nQ max:",
+              np.max(output.cpu().detach().numpy()),'\n')
 
 def test(model, n, m, mineWeight):
-    game_state = ms(n, m, mineWeight)
+    game = ms(n, m, mineWeight)
 
     # initial action
     action = ms.choose()
-    img, _, _ = game_state.move(action)
+    img, _, _ = game.move(action)
     state = imTensor(img)
 
     while True:
@@ -212,10 +225,10 @@ def test(model, n, m, mineWeight):
         
         # get corresponding action from neural network output
         action_index = torch.argmax(output)
-        action = (action_index.item() % game_state.m, action_index.item() // game_state.m)
+        action = (action_index.item() % game.m, action_index.item() // game.m)
 
         # get next state and reward
-        next_img, _, _ = game_state.move(action)
+        next_img, _, _ = game.move(action)
         next_state = imTensor(next_img)
 
         state = next_state
@@ -223,7 +236,7 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            'pretrained_model/current_model_******.pth',
+            'pretrained_model/current_model_100.pth',
             map_location='cpu').eval()
         
         test(model, n, m, mineWeight)
@@ -240,6 +253,7 @@ def main(mode, n, m, mineWeight):
         train(model, n, m, mineWeight, start)
 
 if __name__ == '__main__':
-    # main(sys.argv[1])
-    print(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4])
+    n,m, mineWeight = 10, 10, .175
+    main('train',n,m,mineWeight)
+    # print(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4])
     # main(input('train/test? '))

@@ -3,7 +3,6 @@ import random as rd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 from PIL import Image as im
-# import sys
 
 class minesweeper():
 
@@ -11,7 +10,6 @@ class minesweeper():
         self.rows = n
         self.cols = m
         self.grid = np.zeros((n,m))
-        self.pix = self.grid
         self.mineWeight = mineWeight*n*m
         self.click = []
         self.history = []
@@ -19,6 +17,7 @@ class minesweeper():
         self.nonCount = self.rows*self.cols - self.mineCount
         self.found = 0
         self.view = -9*np.ones((self.rows, self.cols)).astype(np.int16)
+        self.pix = np.copy(self.view)
         self.wins = 0
 
         # Create game layout
@@ -62,8 +61,8 @@ class minesweeper():
         plt.show()
     
     def transform(self, grid):
-        self.pix = grid
-        for i,p in np.ndenumerate(self.pix):
+        self.pix = grid.copy()
+        for i,p in np.ndenumerate(grid):
             if p == -1:
                 self.pix[i] = 255
             else:
@@ -76,6 +75,10 @@ class minesweeper():
         if show:
             img.show()
 
+    def first_game(self):
+        self.transform(self.view)
+        return self.pix
+
     def move(self, coord):
         terminal = False
         reward = 0
@@ -87,6 +90,7 @@ class minesweeper():
             terminal = True
         elif self.history.count(coord) > 1:
             print('Duplicate entry. Try again :/')
+            reward = -1
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
@@ -96,11 +100,13 @@ class minesweeper():
             reward = 10
             terminal = True
         
-        reward += self.found * .1
-        img = self.impix(self.view, False)
+        # reward += self.found * .1
+        # img = self.impix(self.view, False)
+        self.transform(self.view)
+        img = self.pix
         
         if terminal:
-            self.__init__(self.n, self.m, self.mineWeight)
+            self.__init__(self.rows, self.cols, self.mineWeight)
 
         return img, reward, terminal
 
@@ -113,12 +119,6 @@ class minesweeper():
                 if rd.randint(0,np.size(self.grid)) <= self.mineWeight/2 and self.grid[i] != -1:
                     self.view[i] = self.grid[i]
                     self.history.append(i)
-        # if step:
-        #     initial = (rd.choice(range(self.rows)),rd.choice(range(self.cols)))
-        #     self.view[initial] = self.grid[initial]
-        #     self.history.append(initial)
-        #     self.move(initial)
-        #     self.check()
         else:
             while self.found < self.nonCount:
                 if show:
@@ -154,13 +154,23 @@ class minesweeper():
                 print('You Win!')
 
 if __name__ == '__main__':
-    score = []
-    for i in range(30):
-        g = minesweeper(5,5,.175)
-        g.play(mode = 'auto', show = False)
-        if g.found > 15:
-            g.impix(g.view)
-            break
+    g = minesweeper(10,10,.175)
+    # g.showGrid(g.grid, interactive = False)
+    for i in range(10):
+        coord = g.choose()
+        img, _, _ = g.move(coord)
+        print(img)
+        print(g.view)
+        print(f'\nFound: {g.found} \nCoord: {coord}, \nIteration: {i}')
+    # img, _, _ = g.move((0,0))
+    # print(torch.from_numpy(img))
+    #  score = []
+    # for i in range(30):
+    #     g = minesweeper(5,5,.175)
+    #     g.play(mode = 'auto', show = False)
+    #     if g.found > 15:
+    #         g.impix(g.view)
+    #         break
         # score.append(g.found)
     # print(f'Max score: {max(score)}\nWins: {g.wins}')
     # plt.hist(score,20)
