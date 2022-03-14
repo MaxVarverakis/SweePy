@@ -81,6 +81,7 @@ class minesweeper():
                 self.view[i] = self.grid[i]
                 self.history.append(i)
                 self.num_aided += 1
+                self.found += 1
 
     def first_game(self):
         self.aid()
@@ -98,25 +99,24 @@ class minesweeper():
             terminal = True
         elif self.history.count(coord) > 1:
             print('Duplicate entry. Try again :/\n')
-            reward = -.75
+            reward = -.5
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
             reward = .5
+            reward += .025*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
             print('You Win! :)')
             reward = 1
             terminal = True
         
         self.transform(self.view)
-        img = self.pix
+        img = np.copy(self.pix)
         
         if terminal:
-            self.__init__(self.rows, self.cols, self.mineWeight)
+            self.__init__(self.rows, self.cols, self.mineWeight/(self.rows*self.cols))
             self.aid()
         
-        reward += .1*len(self.history) - self.num_aided
-
         return img, reward, terminal
 
     def choose(self):
@@ -173,7 +173,7 @@ if __name__ == '__main__':
         g.move(coord)
         # print(img)
         # print(g.view)
-        print(f'\nFound: {g.found} \nCoord: {coord}, \nIteration: {i+1}')
+        print(f'\nFound: {g.found} \nCoord: {coord} \nIteration: {i+1}')
     # img, _, _ = g.move((0,0))
     # print(torch.from_numpy(img))
     #  score = []

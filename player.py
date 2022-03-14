@@ -15,6 +15,7 @@ import random
 import os
 import time
 from Minesweeper import minesweeper as ms
+import matplotlib.pyplot as plt
 
 # if gpu is to be used
 # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -46,8 +47,8 @@ class DQN(nn.Module):
         self.numActions = n*m
         self.gamma = 0.999
         self.final_epsilon = 0.0001
-        self.initial_epsilon = 0.1
-        self.number_of_iterations = 100
+        self.initial_epsilon = 0.175
+        self.number_of_iterations = 100000
         self.replay_memory_size = 10000
         self.batch_size = 64
 
@@ -125,6 +126,8 @@ def train(model, n, m, mineWeight, start):
     #     else:
     #         return torch.tensor([[random.randrange(n_actions)]], device=device, dtype=torch.long)
 
+    rewards_history = []
+
 # main infinite loop
     while iteration < model.number_of_iterations:
         # get output from the neural network
@@ -135,8 +138,8 @@ def train(model, n, m, mineWeight, start):
 
         # epsilon greedy exploration
         random_action = random.random() <= epsilon
-        # if random_action:
-        #     print("Performed random action!")
+        if random_action:
+            print("Performed random action!")
 
         # get corresponding action from neural network output
         # action_index = [torch.randint(model.numActions, torch.Size([]), dtype=torch.int)
@@ -155,6 +158,7 @@ def train(model, n, m, mineWeight, start):
         
         # get next state and reward
         next_img, reward, terminal = game.move(action)
+        rewards_history.append(reward)
         next_state = imTensor(next_img)
         reward = torch.tensor([reward], device = device, dtype = torch.float32).unsqueeze(0)
 
@@ -186,11 +190,12 @@ def train(model, n, m, mineWeight, start):
         next_output = model(next_state_batch)
 
         null_reward = torch.tensor([0], device = device, dtype = torch.float32)
+        dup_reward = torch.tensor([.5], device = device, dtype = torch.float32)
 
         # set y_j to 0 for terminal state or duplicate, otherwise to r_j + gamma*max(Q)
         y_batch = torch.cat(tuple(null_reward if batch.terminal[i]
                                   else reward_batch[i] + model.gamma * torch.max(next_output[i]) if reward_batch[i] != -1
-                                  else null_reward
+                                  else dup_reward
                                   for i in range(len(batch.state))))
 
         # returns a new Tensor, detached from the current graph, the result will never require gradient
@@ -198,7 +203,6 @@ def train(model, n, m, mineWeight, start):
 
         
         # extract Q-value
-        # q_value = torch.sum(model(state_batch) * action_batch)
         q_value = model(state_batch).gather(1, action_batch).squeeze(1)
         
         # Debugging stuff
@@ -221,6 +225,10 @@ def train(model, n, m, mineWeight, start):
 
         if iteration % 100000 == 0:
             torch.save(model, "pretrained_model/current_model_" + str(iteration) + ".pth")
+            steps = [i for i in range(iteration)]
+            plt.plot(steps,rewards_history)
+            plt.xlabel("Iteration")
+            plt.ylabel("Reward")
         
         print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, "\nAction:",
               action, "\nReward:", reward.numpy()[0][0], "\nQ max:",
