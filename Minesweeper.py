@@ -19,6 +19,7 @@ class minesweeper():
         self.view = -9*np.ones((self.rows, self.cols)).astype(np.int16)
         self.pix = np.copy(self.view)
         self.wins = 0
+        self.num_aided = 0
 
         # Create game layout
         for i,_ in np.ndenumerate(self.grid):
@@ -69,44 +70,52 @@ class minesweeper():
                 self.pix[i] = 25*abs(p)
         self.pix = self.pix.astype(np.uint8)
 
-    def impix(self, grid, show = True):
+    def impix(self, grid):
         self.transform(grid)
         img = im.fromarray(self.pix)
-        if show:
-            img.show()
+        img.show()
+
+    def aid(self):
+        for i,_ in np.ndenumerate(self.grid):
+            if rd.randint(0,np.size(self.grid)) <= self.mineWeight/1.5 and self.grid[i] != -1:
+                self.view[i] = self.grid[i]
+                self.history.append(i)
+                self.num_aided += 1
 
     def first_game(self):
+        self.aid()
         self.transform(self.view)
         return self.pix
-
+        
     def move(self, coord):
         terminal = False
         reward = 0
         self.history.append(coord)
         
         if self.grid[coord] == -1:
-            print('BOOM!\nGame Over :(')
-            reward = -10
+            print('BOOM!\nGame Over :(\n')
+            reward = -1
             terminal = True
         elif self.history.count(coord) > 1:
-            print('Duplicate entry. Try again :/')
-            reward = -1
+            print('Duplicate entry. Try again :/\n')
+            reward = -.75
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
-            reward = 1
+            reward = .5
         if self.found == self.nonCount:
             print('You Win! :)')
-            reward = 10
+            reward = 1
             terminal = True
         
-        # reward += self.found * .1
-        # img = self.impix(self.view, False)
         self.transform(self.view)
         img = self.pix
         
         if terminal:
             self.__init__(self.rows, self.cols, self.mineWeight)
+            self.aid()
+        
+        reward += .1*len(self.history) - self.num_aided
 
         return img, reward, terminal
 
@@ -155,13 +164,16 @@ class minesweeper():
 
 if __name__ == '__main__':
     g = minesweeper(10,10,.175)
+    # g.aid()
+    # g.showGrid(g.view, interactive = False)
+    # g.impix(g.view)
     # g.showGrid(g.grid, interactive = False)
-    for i in range(10):
+    for i in range(100):
         coord = g.choose()
-        img, _, _ = g.move(coord)
-        print(img)
-        print(g.view)
-        print(f'\nFound: {g.found} \nCoord: {coord}, \nIteration: {i}')
+        g.move(coord)
+        # print(img)
+        # print(g.view)
+        print(f'\nFound: {g.found} \nCoord: {coord}, \nIteration: {i+1}')
     # img, _, _ = g.move((0,0))
     # print(torch.from_numpy(img))
     #  score = []

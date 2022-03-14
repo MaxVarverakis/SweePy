@@ -44,12 +44,12 @@ class DQN(nn.Module):
     def __init__(self, n, m):
         super(DQN, self).__init__()
         self.numActions = n*m
-        self.gamma = 0.99
+        self.gamma = 0.999
         self.final_epsilon = 0.0001
         self.initial_epsilon = 0.1
-        self.number_of_iterations = 3
+        self.number_of_iterations = 100
         self.replay_memory_size = 10000
-        self.batch_size = 32
+        self.batch_size = 64
 
         # Currently tested with 10x10 pixel image inputs
         self.conv1 = nn.Conv2d(1, 16, kernel_size = 3, stride = 1)
@@ -92,8 +92,8 @@ def train(model, n, m, mineWeight, start):
 	# define Adam optimizer
     optimizer = optim.Adam(model.parameters(), lr=1e-6)
 
-    # initialize mean squared error loss
-    criterion = nn.MSELoss()
+    # initialize Huber loss
+    criterion = nn.SmoothL1Loss()
 
     # instantiate game
     game = ms(n, m, mineWeight)
@@ -103,9 +103,6 @@ def train(model, n, m, mineWeight, start):
 
     # initial action
     state = imTensor(game.first_game())
-    # action = game.choose()
-    # img, _, _ = game.move(action)
-    # state = imTensor(img)
 
     # initialize epsilon value
     epsilon = model.initial_epsilon
@@ -188,11 +185,14 @@ def train(model, n, m, mineWeight, start):
         # get output for the next state
         next_output = model(next_state_batch)
 
-        # set y_j to r_j for terminal state, otherwise to r_j + gamma*max(Q)
-        y_batch = torch.cat(tuple(reward_batch[i] if batch.terminal[i]
-                                  else reward_batch[i] + model.gamma * torch.max(next_output[i])
+        null_reward = torch.tensor([0], device = device, dtype = torch.float32)
+
+        # set y_j to 0 for terminal state or duplicate, otherwise to r_j + gamma*max(Q)
+        y_batch = torch.cat(tuple(null_reward if batch.terminal[i]
+                                  else reward_batch[i] + model.gamma * torch.max(next_output[i]) if reward_batch[i] != -1
+                                  else null_reward
                                   for i in range(len(batch.state))))
-        
+
         # returns a new Tensor, detached from the current graph, the result will never require gradient
         y_batch = y_batch.detach()
 
@@ -207,7 +207,10 @@ def train(model, n, m, mineWeight, start):
 
         # compute loss
         loss = criterion(q_value, y_batch)
-
+        
+        # more debugging stuff
+        # print(f'Loss: {loss}\nModel: {model(state_batch)}\nAction: {action_batch}\nQ: {q_value}\nY: {y_batch}')
+        
         # backward pass
         optimizer.zero_grad()
         loss.backward()
@@ -216,42 +219,46 @@ def train(model, n, m, mineWeight, start):
         state = next_state
         iteration += 1
 
-        if iteration % 25000 == 0:
+        if iteration % 100000 == 0:
             torch.save(model, "pretrained_model/current_model_" + str(iteration) + ".pth")
         
         print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, "\nAction:",
               action, "\nReward:", reward.numpy()[0][0], "\nQ max:",
-              np.max(output.cpu().detach().numpy()),'\n')
+              np.max(output.cpu().detach().numpy()),'\n',
+              f'Loss: {loss}')
 
 def test(model, n, m, mineWeight):
     game = ms(n, m, mineWeight)
 
     # initial action
-    action = ms.choose()
-    img, _, _ = game.move(action)
-    state = imTensor(img)
+    state = imTensor(game.first_game())
 
     while True:
         # get output from the neural network
-        output = model(state)[0]
+        output = model(state)
 
         # initialize action
         action = (0,0)
         
         # get corresponding action from neural network output
         action_index = torch.argmax(output)
-        action = (action_index.item() % game.m, action_index.item() // game.m)
+        action = (action_index.item() % game.cols, action_index.item() // game.cols)
 
-        # get next state and reward
-        next_img, _, _ = game.move(action)
+        # get next state
+        next_img, _, terminal = game.move(action)
         next_state = imTensor(next_img)
 
         state = next_state
+        if terminal:
+            print(f'Score: {game.found}')
+            break
+        else:
+            print(f'Current Score: {game.found}')
 
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            'pretrained_model/current_model_100.pth',
+            'pretrained_model/current_model_100000.pth',
             map_location='cpu').eval()
         
         test(model, n, m, mineWeight)
@@ -268,7 +275,6 @@ def main(mode, n, m, mineWeight):
         train(model, n, m, mineWeight, start)
 
 if __name__ == '__main__':
-    n,m, mineWeight = 10, 10, .175
-    main('train',n,m,mineWeight)
+    main('train', 10, 10, .175)
     # print(sys.argv[1],sys.argv[2],sys.argv[3],sys.argv[4])
     # main(input('train/test? '))
