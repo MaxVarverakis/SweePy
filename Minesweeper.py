@@ -94,19 +94,20 @@ class minesweeper():
         self.history.append(coord)
         
         if self.grid[coord] == -1:
-            print('BOOM!\nGame Over :(\n')
+            # print('BOOM!\nGame Over :(\n')
             reward = -1
             terminal = True
         elif self.history.count(coord) > 1:
-            print('Duplicate entry. Try again :/\n')
+            # print('Duplicate entry. Try again :/\n')
             reward = -.5
+            terminal = True
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
             reward = .5
             reward += .025*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
-            print('You Win! :)')
+            # print('You Win! :)')
             reward = 1
             terminal = True
         

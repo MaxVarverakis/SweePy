@@ -48,7 +48,7 @@ class DQN(nn.Module):
         self.gamma = 0.999
         self.final_epsilon = 0.0001
         self.initial_epsilon = 0.175
-        self.number_of_iterations = 100000
+        self.number_of_iterations = 1000000
         self.replay_memory_size = 10000
         self.batch_size = 64
 
@@ -138,8 +138,8 @@ def train(model, n, m, mineWeight, start):
 
         # epsilon greedy exploration
         random_action = random.random() <= epsilon
-        if random_action:
-            print("Performed random action!")
+        # if random_action:
+        #     print("Performed random action!")
 
         # get corresponding action from neural network output
         # action_index = [torch.randint(model.numActions, torch.Size([]), dtype=torch.int)
@@ -222,24 +222,27 @@ def train(model, n, m, mineWeight, start):
 
         state = next_state
         iteration += 1
-
+        
+        print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, "\nAction:",
+              action, "\nReward:", reward.numpy()[0][0], "\nQ max:",
+              np.max(output.cpu().detach().numpy()),
+              '\n'f'Loss: {loss}\n')
+        
         if iteration % 100000 == 0:
             torch.save(model, "pretrained_model/current_model_" + str(iteration) + ".pth")
             steps = [i for i in range(iteration)]
             plt.plot(steps,rewards_history)
             plt.xlabel("Iteration")
             plt.ylabel("Reward")
-        
-        print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, "\nAction:",
-              action, "\nReward:", reward.numpy()[0][0], "\nQ max:",
-              np.max(output.cpu().detach().numpy()),'\n',
-              f'Loss: {loss}')
+            plt.show()
 
 def test(model, n, m, mineWeight):
     game = ms(n, m, mineWeight)
 
     # initial action
     state = imTensor(game.first_game())
+    
+    score = []
 
     while True:
         # get output from the neural network
@@ -257,11 +260,14 @@ def test(model, n, m, mineWeight):
         next_state = imTensor(next_img)
 
         state = next_state
+
+        score.append(game.found-game.num_aided)
+
         if terminal:
-            print(f'Score: {game.found}')
+            print(f'Score: {max(score)}')
             break
         else:
-            print(f'Current Score: {game.found}')
+            print(f'Current Score: {max(score)}')
 
 def main(mode, n, m, mineWeight):
     if mode == 'test':
