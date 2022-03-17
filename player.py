@@ -46,7 +46,7 @@ class DQN(nn.Module):
         self.gamma = 0.999
         self.final_epsilon = 0.0001
         self.initial_epsilon = 1
-        self.number_of_iterations = 10
+        self.number_of_iterations = 100000
         self.replay_memory_size = 10000
         self.batch_size = 32
         self.target_update = 10
@@ -320,7 +320,7 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            'pretrained_model/current_model_10000.pth',
+            'pretrained_model/current_model_100000.pth',
             # 'pretrained_model/1000000NonZero_NonTermDup.pth',
             map_location='cpu').eval()
         
@@ -338,19 +338,19 @@ def main(mode, n, m, mineWeight):
         train(n, m, mineWeight, start)
 
 if __name__ == '__main__':
-    # data = []
-    # mean = []
-    # iters = 10000
-    # for i in range(iters):
-    #     print(i)
-    #     data.append(main('test', 10, 10, .175))
-    #     mean.append(np.mean(data))
-    # plt.plot([j for j in range(iters)], data, label = '__nolegend__')
-    # plt.plot([j for j in range(iters)], mean, label = 'Avg Score')
-    # plt.legend()
-    # plt.xlabel('Game')
-    # plt.ylabel('Score')
-    # plt.show()
-    # print(np.mean(data))
+    data = []
+    mean = []
+    iters = 10000
+    for i in range(iters):
+        print(i)
+        data.append(main('test', 10, 10, .175))
+        mean.append(np.mean(data))
+    plt.plot([j for j in range(iters)], data, label = '__nolegend__')
+    plt.plot([j for j in range(iters)], mean, label = 'Avg Score')
+    plt.legend()
+    plt.xlabel('Game')
+    plt.ylabel('Score')
+    plt.show()
+    print(np.mean(data))
 
-    main('train', 10, 10, .175)
+    # main('train', 10, 10, .175)
