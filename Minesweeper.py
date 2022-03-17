@@ -93,22 +93,22 @@ class minesweeper():
         reward = 0
         self.history.append(coord)
         
-        if self.grid[coord] == -1:
-            # print('BOOM!\nGame Over :(\n')
+        if self.grid[coord] == -1 or self.history.count(coord) > 1:
+            # print('\nGame Over :(\n')
             reward = -1
             terminal = True
-        elif self.history.count(coord) > 1:
-            # print('Duplicate entry. Try again :/\n')
-            reward = -.5
-            terminal = True
+        # elif self.history.count(coord) > 1:
+        #     # print('Duplicate entry. Try again :/\n')
+        #     reward = -.1*self.history.count(coord)
+        #     terminal = True
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
-            reward = .5
-            reward += .025*(self.found - self.num_aided - 1)
+            # reward = .5
+            reward += .1*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
-            # print('You Win! :)')
-            reward = 1
+            # print('You Win! :)\n')
+            reward += 1
             terminal = True
         
         self.transform(self.view)
@@ -169,12 +169,19 @@ if __name__ == '__main__':
     # g.showGrid(g.view, interactive = False)
     # g.impix(g.view)
     # g.showGrid(g.grid, interactive = False)
-    for i in range(100):
+    data = []
+    iters = 10000
+    for i in range(iters):
+        print(i)
         coord = g.choose()
         g.move(coord)
         # print(img)
         # print(g.view)
-        print(f'\nFound: {g.found} \nCoord: {coord} \nIteration: {i+1}')
+        # print(f'\nFound: {g.found-g.num_aided} \nCoord: {coord} \nIteration: {i+1}')
+        data.append(g.found-g.num_aided)
+    plt.scatter([j for j in range(iters)], data)
+    plt.show()
+    print(np.mean(data))
     # img, _, _ = g.move((0,0))
     # print(torch.from_numpy(img))
     #  score = []
