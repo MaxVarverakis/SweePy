@@ -46,13 +46,15 @@ class DQN(nn.Module):
         self.gamma = 0.999
         self.final_epsilon = 0.0001
         self.initial_epsilon = 1
-        self.number_of_iterations = 1000000
+        self.number_of_iterations = 100000
         self.replay_memory_size = 10000
         self.batch_size = 32
         self.target_update = 10
+        self.pad_size = 2
 
         # Currently tested with 10x10 pixel image inputs
-        self.conv1 = nn.Conv2d(1, 16, kernel_size = 3, stride = 1)
+        self.pd = nn.ConstantPad2d(self.pad_size, 225)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size = 7, stride = 1)
         self.bn1 = nn.BatchNorm2d(16)
         self.conv2 = nn.Conv2d(16, 64, kernel_size = 3, stride = 1)
         self.bn2 = nn.BatchNorm2d(64)
@@ -65,8 +67,9 @@ class DQN(nn.Module):
         # and therefore the input image size, so compute it.
         def conv2d_size_out(size, kernel_size, stride = 1):
             return (size - (kernel_size - 1) - 1) // stride  + 1
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(m, 3), 3), 3), 3)
-        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(n, 3), 3), 3), 3)
+        # Will need tweaking if using uneven padding
+        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2*self.pad_size, 7), 3), 3), 3)
+        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2*self.pad_size, 7), 3), 3), 3)
         linear_input_size = convw * convh * 512
         
         self.fc5 = nn.Linear(linear_input_size, 188)
@@ -74,7 +77,7 @@ class DQN(nn.Module):
 
     def forward(self, x):
         x = x.to(device)
-        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn1(self.conv1(self.pd(x))))
         x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn4(self.conv4(x)))
@@ -86,7 +89,7 @@ class DQN(nn.Module):
 
 def imTensor(image):
     # convert image data to tensor and add channel dimension
-    image = torch.reshape(torch.from_numpy(image),(1,10,10))
+    image = torch.reshape(torch.from_numpy(image), (1, 10, 10))
     image = image.to(device)
     # unsqueeze to add batch dimension | final image shape (B,C,H,W) : (1,1,10,10)
     return image.unsqueeze(0).float()
@@ -247,7 +250,7 @@ def train(n, m, mineWeight, start):
         iteration += 1
         
         print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, "\nAction:",
-              action, "\nReward:", reward.numpy()[0][0], "\nQ max:",
+              action, "\nReward:", reward.cpu().numpy()[0][0], "\nQ max:",
               np.max(output.cpu().detach().numpy()),
               '\n'f'Loss: {loss}\n')
 
@@ -320,9 +323,9 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            'pretrained_model/current_model_1000000.pth',
+            'pretrained_model/current_model_100000.pth',
             # 'pretrained_model/1000000NonZero_NonTermDup.pth',
-            map_location='cpu').eval()
+            map_location = device).eval()
         
         return test(model, n, m, mineWeight)
 
