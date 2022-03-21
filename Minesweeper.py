@@ -16,7 +16,7 @@ class minesweeper():
         self.mineCount = len(self.grid[self.grid == -1])
         self.nonCount = self.rows*self.cols - self.mineCount
         self.found = 0
-        self.view = -9*np.ones((self.rows, self.cols)).astype(np.int16)
+        self.view = 9*np.ones((self.rows, self.cols)).astype(np.int16)
         self.pix = np.copy(self.view)
         self.wins = 0
         self.num_aided = 0
@@ -48,7 +48,7 @@ class minesweeper():
         lim = max(self.rows,self.cols)
         ax = plt.gca()
         s = 1
-        color = {-9: 'silver', -1: 'm', 0: 'slategrey', 1: 'b', 2: 'g', 3: 'r', 4: 'darkblue', 5: 'darkred', 6: 'c', 7: 'gold', 8: 'k'}
+        color = {-1: 'm', 0: 'slategrey', 1: 'b', 2: 'g', 3: 'r', 4: 'darkblue', 5: 'darkred', 6: 'c', 7: 'gold', 8: 'k', 9: 'silver'}
         for index,val in np.ndenumerate(grid):
             coord = (index[1]-s/2,index[0]-s/2)
             ax.add_artist(Rectangle(coord, s, s, fc = color[val], ec = 'k'))
@@ -67,13 +67,19 @@ class minesweeper():
             if p == -1:
                 self.pix[i] = 255
             else:
-                self.pix[i] = 25*abs(p)
+                self.pix[i] = 25 * p
         self.pix = self.pix.astype(np.uint8)
 
     def impix(self, grid):
         self.transform(grid)
         img = im.fromarray(self.pix)
         img.show()
+
+    def one_hot(self, grid):
+        state = []
+        for i in range(9):
+            state.append((grid == i).astype(int))
+        return state
 
     def aid(self):
         for i,_ in np.ndenumerate(self.grid):
@@ -98,13 +104,14 @@ class minesweeper():
             reward = -1
             terminal = True
         # elif self.history.count(coord) > 1:
-        #     # print('Duplicate entry. Try again :/\n')
-        #     reward = -.1*self.history.count(coord)
-        #     terminal = True
+            # print('Duplicate entry. Try again :/\n')
+            # reward = -.1*self.history.count(coord)
+            # reward = -.75
+            # terminal = True
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
-            # reward = .5
+            # reward = .75
             reward += .1*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
             # print('You Win! :)\n')
@@ -112,13 +119,14 @@ class minesweeper():
             terminal = True
         
         self.transform(self.view)
-        img = np.copy(self.pix)
+        # img = np.copy(self.pix)
+        state = self.one_hot(self.view)
         
         if terminal:
             self.__init__(self.rows, self.cols, self.mineWeight/(self.rows*self.cols))
             self.aid()
         
-        return img, reward, terminal
+        return state, reward, terminal
 
     def choose(self):
         return (rd.choice(range(self.rows)),rd.choice(range(self.cols)))
