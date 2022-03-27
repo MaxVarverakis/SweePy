@@ -111,11 +111,11 @@ class minesweeper():
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
-            # reward = .75
-            reward += .1*(self.found - self.num_aided - 1)
+            reward = .1
+            # reward += .1*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
             # print('You Win! :)\n')
-            reward += 1
+            reward = 1
             terminal = True
         
         self.transform(self.view)
