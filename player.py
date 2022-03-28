@@ -304,8 +304,8 @@ def train(n, m, mineWeight, start):
 def test(model, n, m, mineWeight):
     game = ms(n, m, mineWeight)
 
-    game.aid()
     # initial state
+    # game.aid()
     # imTensor(game.first_game())
     # state = format_state(game.one_hot(game.view))
     state = format_state(game.condensed())
