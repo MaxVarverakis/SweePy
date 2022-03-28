@@ -46,7 +46,7 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.numActions = n*m
         self.gamma = 0.99
-        self.number_of_iterations = 100000
+        self.number_of_iterations = 50000
         self.replay_memory_size = 10000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
@@ -72,7 +72,7 @@ class DQN(nn.Module):
         # self.bn2 = nn.BatchNorm2d(64)
         # self.conv3 = nn.Conv2d(64, 1, kernel_size = 1, stride = 1, padding = self.pad3)
 
-        self.conv1 = nn.Conv2d(9, 32, kernel_size = 5, stride = 1, padding = self.pad1)
+        self.conv1 = nn.Conv2d(2, 32, kernel_size = 5, stride = 1, padding = self.pad1)
         self.bn1 = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size = 3, stride = 1, padding = self.pad2)
         self.bn2 = nn.BatchNorm2d(64)
@@ -149,7 +149,9 @@ def train(n, m, mineWeight, start):
     memory = ReplayMemory(policy_net.replay_memory_size)
 
     # initial state
-    state = format_state(game.one_hot(game.view))
+    game.aid()
+    # state = format_state(game.one_hot(game.view))
+    state = format_state(game.condensed())
 
     # initialize epsilon value
     # epsilon = policy_net.initial_epsilon
@@ -302,8 +304,11 @@ def train(n, m, mineWeight, start):
 def test(model, n, m, mineWeight):
     game = ms(n, m, mineWeight)
 
+    game.aid()
     # initial state
-    state = format_state(game.one_hot(game.view)) # imTensor(game.first_game())
+    # imTensor(game.first_game())
+    # state = format_state(game.one_hot(game.view))
+    state = format_state(game.condensed())
     
     score = []
     
@@ -320,7 +325,8 @@ def test(model, n, m, mineWeight):
 
         # get next state
         next_state, _, terminal = game.move(action)
-        next_state = format_state(next_state) # imTensor(next_img)
+        # imTensor(next_img)
+        next_state = format_state(next_state) 
 
         state = next_state
 
@@ -340,7 +346,7 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            f'pretrained_model/current_model_100000.pth',
+            f'pretrained_model/current_model_50000.pth',
             map_location = device).eval()
         
         return test(model, n, m, mineWeight)
@@ -358,8 +364,9 @@ if __name__ == '__main__':
 
     params = [10, 10, .175]
     
-    main('train', *params)
+    # main('train', *params)
     
+    # Learning rate tests
     # lrr = np.geomspace(1e-7,1e-1,1000)
     # data = []
     # global i
@@ -373,7 +380,7 @@ if __name__ == '__main__':
 
     data = []
     i = 0
-    while i < 3000:
+    while i < 5000:
         print(i)
         data.append(main('test', *params))
         i += 1

@@ -9,35 +9,47 @@ class minesweeper():
     def __init__(self, n, m, mineWeight):
         self.rows = n
         self.cols = m
-        self.grid = np.zeros((n,m))
-        self.mineWeight = mineWeight*n*m
+        self.grid = np.zeros((n, m))
+        self.mineWeight = mineWeight * n * m
         self.click = []
         self.history = []
         self.mineCount = len(self.grid[self.grid == -1])
-        self.nonCount = self.rows*self.cols - self.mineCount
+        self.nonCount = self.rows * self.cols - self.mineCount
         self.found = 0
-        self.view = 9*np.ones((self.rows, self.cols)).astype(np.int16)
+        self.view = 9 * np.ones((self.rows, self.cols)).astype(np.int16)
         self.pix = np.copy(self.view)
         self.wins = 0
         self.num_aided = 0
 
         # Create game layout
+        # Place mines
         for i,_ in np.ndenumerate(self.grid):
             if rd.randint(0,np.size(self.grid)) <= self.mineWeight:
                 self.grid[i] = -1
-        for i,_ in np.ndenumerate(self.grid):
+        # Place numbers
+        self.sub(self.grid)
+        
+    def sub(self, grid):
+        subs = {}
+        for i,_ in np.ndenumerate(grid):
             if self.grid[i] != -1:
                 r,c = i
-                sub = self.grid[r-1:r+2,c-1:c+2]
+                sub = grid[r-1:r+2, c-1:c+2]
                 if np.size(sub) == 0:
-                    sub = self.grid[r:r+2,c-1:c+2]
+                    sub = grid[r:r+2, c-1:c+2]
                     if np.size(sub) == 0:
-                        sub = self.grid[r-1:r+2,c:c+2]
+                        sub = grid[r-1:r+2, c:c+2]
                         if np.size(sub) == 0:
-                            sub = self.grid[r:r+2,c:c+2]
-                count = len(sub[sub == -1])
-                self.grid[i] = count
-        self.grid = self.grid.astype(int)
+                            sub = grid[r:r+2, c:c+2]
+                # if new game, initialize grid numbers
+                if self.found == 0:
+                    self.grid[i] = len(sub[sub == -1])
+                else:
+                    subs[i] = sub
+        if self.found == 0:
+            self.grid = self.grid.astype(int)
+        else:
+            return subs
 
     def onclick(self,event):
         self.click = [round(event.xdata), round(event.ydata)]
@@ -45,7 +57,7 @@ class minesweeper():
 
     def showGrid(self, grid, interactive = True):
         fig = plt.figure()
-        lim = max(self.rows,self.cols)
+        lim = max(self.rows, self.cols)
         ax = plt.gca()
         s = 1
         color = {-1: 'm', 0: 'slategrey', 1: 'b', 2: 'g', 3: 'r', 4: 'darkblue', 5: 'darkred', 6: 'c', 7: 'gold', 8: 'k', 9: 'silver'}
@@ -75,6 +87,9 @@ class minesweeper():
         img = im.fromarray(self.pix)
         img.show()
 
+    def condensed(self):
+        return [self.view, (self.view == 9).astype(int)]
+
     def one_hot(self, grid):
         state = []
         for i in range(9):
@@ -93,12 +108,12 @@ class minesweeper():
         self.aid()
         self.transform(self.view)
         return self.pix
-        
+
     def move(self, coord):
         terminal = False
         reward = 0
         self.history.append(coord)
-        
+
         if self.grid[coord] == -1 or self.history.count(coord) > 1:
             # print('\nGame Over :(\n')
             reward = -1
@@ -111,16 +126,28 @@ class minesweeper():
         else:
             self.view[coord] = self.grid[coord]
             self.found += 1
-            reward = .1
+            sub = self.sub(self.view)[coord]
+            # negative reward for choosing square in the middle of no where
+            if len(sub[sub == 9]) == (sub.size - 1):
+                reward = -.1 / 4
+            else:
+                reward = .1
+            # reward = .1
             # reward += .1*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
             # print('You Win! :)\n')
             reward = 1
             terminal = True
         
-        self.transform(self.view)
+        # for image input:
+        # self.transform(self.view)
         # img = np.copy(self.pix)
-        state = self.one_hot(self.view)
+
+        # for condensed input:
+        state = self.condensed()
+
+        # for one-hot encoded input:
+        # state = self.one_hot(self.view)
         
         if terminal:
             self.__init__(self.rows, self.cols, self.mineWeight/(self.rows*self.cols))
