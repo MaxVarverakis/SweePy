@@ -52,7 +52,7 @@ class PER():
         self.per_beta_min = 0.4 # Starting value of importance sampling correction
         self.per_beta_max = 1.0 # Final value of beta after annealing
         self.per_beta_anneal_steps = 10e6 # Number of steps to anneal beta over
-        self.per_epsilon = 0.01 # Small positive constant to prevent zero priority
+        self.per_epsilon = 0.025 # Small positive constant to prevent zero priority
         
         self.beta_anneal = (self.per_beta_max - self.per_beta_min) / self.per_beta_anneal_steps
         self.per_beta = self.per_beta_min
@@ -88,10 +88,12 @@ class PER():
             tree_indices.append(tree_idx)
             priorities.append(priority)
             minibatch.append(experience)
+        # np.clip(priorities, a_min = self.per_epsilon)
         
         # Calculate and scale weights for importance sampling
         min_probability = np.min(priorities) / self.sumtree.total()
         max_weight = (min_probability * self.memory_length) ** (-self.per_beta)
+        print(self.sumtree.total(), min_probability, max_weight, np.min(priorities))
         for priority in priorities:
             probability = priority / self.sumtree.total()
             weight = (probability * self.memory_length) ** (-self.per_beta)
@@ -104,7 +106,7 @@ class DQN(nn.Module):
         super(DQN, self).__init__()
         self.numActions = n*m
         self.gamma = 0.99
-        self.number_of_iterations = 50000
+        self.number_of_iterations = 100000
         self.replay_memory_size = 10000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
@@ -138,6 +140,9 @@ class DQN(nn.Module):
         self.conv3 = nn.Conv2d(64, 512, kernel_size = 3, stride = 1, padding = self.pad3)
         self.bn3 = nn.BatchNorm2d(512)
         
+        # CHANGE NN STRUCTURE -- MAKE MORE LAYERS WITH LESS FILTERS??  
+        # INCREASE MINIBATCH SIZE??
+
         # Number of Linear input connections depends on output of conv2d layers
         # and therefore the input image size, so compute it.
         def conv2d_size_out(size, kernel_size, stride = 1):
@@ -419,7 +424,7 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            f'pretrained_model/current_model_50000.pth',
+            f'pretrained_model/current_model_100000.pth',
             map_location = device).eval()
         
         return test(model, n, m, mineWeight)
@@ -437,7 +442,7 @@ if __name__ == '__main__':
 
     params = [10, 10, .2]
     
-    # main('train', *params)
+    main('train', *params)
     
     # Learning rate tests
     # lrr = np.geomspace(1e-7,1e-1,1000)
