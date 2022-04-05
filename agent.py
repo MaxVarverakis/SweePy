@@ -51,7 +51,7 @@ class PER():
         self.per_alpha = 0.6 # Exponent that determines how much prioritization is used
         self.per_beta_min = 0.4 # Starting value of importance sampling correction
         self.per_beta_max = 1.0 # Final value of beta after annealing
-        self.per_beta_anneal_steps = 10e6 # Number of steps to anneal beta over
+        self.per_beta_anneal_steps = 50e6 # Number of steps to anneal beta over
         self.per_epsilon = 0.025 # Small positive constant to prevent zero priority
         
         self.beta_anneal = (self.per_beta_max - self.per_beta_min) / self.per_beta_anneal_steps
@@ -88,12 +88,11 @@ class PER():
             tree_indices.append(tree_idx)
             priorities.append(priority)
             minibatch.append(experience)
-        # np.clip(priorities, a_min = self.per_epsilon)
         
         # Calculate and scale weights for importance sampling
         min_probability = np.min(priorities) / self.sumtree.total()
         max_weight = (min_probability * self.memory_length) ** (-self.per_beta)
-        print(self.sumtree.total(), min_probability, max_weight, np.min(priorities))
+        # print(self.sumtree.total(), min_probability, max_weight, np.min(priorities))
         for priority in priorities:
             probability = priority / self.sumtree.total()
             weight = (probability * self.memory_length) ** (-self.per_beta)
@@ -110,16 +109,19 @@ class DQN(nn.Module):
         self.replay_memory_size = 10000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
-        self.epsilon_decay = self.number_of_iterations // 2 # 3
+        self.epsilon_decay = self.number_of_iterations // 3
         self.minibatch_scale = 1
         self.minibatch_size = 32 * self.minibatch_scale
         self.target_update = 8 * self.minibatch_scale
 
         self.pad1 = 0
         self.pad2 = 0
-        self.pad3 = 0
+        self.pad3 = 1
+        self.pad4 = 1
+        # self.pad5 = 0
 
         # Currently tested with 10x10 (raw/unpadded) pixel image inputs
+
         # self.pd = nn.ConstantPad2d(self.pad_size, 225)
 
         # Alex M Version
@@ -137,8 +139,12 @@ class DQN(nn.Module):
         self.bn1 = nn.BatchNorm2d(32)
         self.conv2 = nn.Conv2d(32, 64, kernel_size = 3, stride = 1, padding = self.pad2)
         self.bn2 = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 512, kernel_size = 3, stride = 1, padding = self.pad3)
-        self.bn3 = nn.BatchNorm2d(512)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad3)
+        self.bn3 = nn.BatchNorm2d(64)
+        self.conv4 = nn.Conv2d(64, 256, kernel_size = 3, stride = 1, padding = self.pad4)
+        self.bn4 = nn.BatchNorm2d(256)
+        # self.conv5 = nn.Conv2d(128, 512, kernel_size = 3, stride = 1, padding = self.pad5)
+        # self.bn5 = nn.BatchNorm2d(512)
         
         # CHANGE NN STRUCTURE -- MAKE MORE LAYERS WITH LESS FILTERS??  
         # INCREASE MINIBATCH SIZE??
@@ -149,11 +155,11 @@ class DQN(nn.Module):
             return (size - (kernel_size - 1) - 1) // stride  + 1
         
         # Will require tweaking if using uneven padding
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3)
-        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3)
-        linear_input_size = convw * convh * 512
+        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3) + 2 * self.pad4, 3)
+        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3) + 2 * self.pad4, 3)
+        linear_input_size = convw * convh * 256
         
-        self.fc4 = nn.Linear(linear_input_size, self.numActions)
+        self.fc1 = nn.Linear(linear_input_size, self.numActions)
 
     def forward(self, x):
         x = x.to(device)
@@ -163,10 +169,18 @@ class DQN(nn.Module):
         # x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn2(self.conv2(x)))
         # x = F.relu(self.bn2(self.conv2(x)))
+        # x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn3(self.conv3(x)))
+        # x = F.relu(self.bn3(self.conv3(x)))
+        # x = F.relu(self.bn3(self.conv3(x)))
+        # x = F.relu(self.bn3(self.conv3(x)))
+        
+        x = F.relu(self.bn4(self.conv4(x)))
+        # x = F.relu(self.bn5(self.conv5(x)))
+        
         # x = F.relu(self.conv3(x))
         x = x.view(x.size()[0], -1)
-        x = self.fc4(x)
+        x = self.fc1(x)
 
         return x
 
@@ -473,9 +487,9 @@ if __name__ == '__main__':
     else:
         print(f'Average Score: {np.mean(score)}', f'Wins: {wins}')
     smooth_data = savgol_filter(score, 501, 3)
-    plt.plot(score, label = '__nolegend__', alpha = .5)
-    plt.plot(smooth_data, label = '100 Iteration Moving Average', c = 'tab:blue')
-    plt.legend()
+    plt.plot(score, alpha = .5)
+    plt.plot(smooth_data, c = 'tab:blue')
+    # plt.legend()
     plt.xlabel('Game')
     plt.ylabel('Score')
     plt.show()
