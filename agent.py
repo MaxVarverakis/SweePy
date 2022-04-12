@@ -5,6 +5,8 @@ https://github.com/AlexMGitHub/Minesweeper-DDQN
 https://github.com/pytorch/tutorials/blob/master/intermediate_source/reinforcement_q_learning.py
 https://github.com/nevenp/dqn_flappy_bird/blob/master/dqn.py
 https://github.com/rlcode/per
+https://github.com/philtabor/Deep-Q-Learning-Paper-To-Code/blob/master/DuelingDDQN/dueling_ddqn_agent.py
+https://github.com/ChuaCheowHuan/reinforcement_learning/tree/master/DQN_variants/duel_DDQN_PER
 '''
 
 import math
@@ -18,9 +20,10 @@ from collections import namedtuple, deque
 import random
 import os
 import time
-from Minesweeper import minesweeper as ms
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
+from Minesweeper import minesweeper as ms
+import MemoryReplay as mr
 
 # if gpu is to be used
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -28,88 +31,16 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 Transition = namedtuple('Transition',
                         ('state', 'action_idx', 'next_state', 'reward', 'terminal'))
 
-class ReplayMemory():
-
-    def __init__(self, capacity):
-        self.memory = deque([],maxlen=capacity)
-
-    def push(self, *args):
-        '''Save a transition'''
-        self.memory.append(Transition(*args))
-
-    def sample(self, minibatch_size):
-        return random.sample(self.memory, minibatch_size)
-
-    def __len__(self):
-        return len(self.memory)
-
-# PER class from Alex M's repo
-class PER():
-
-    def __init__(self, capacity):
-        self.memory_limit = capacity
-        self.per_alpha = 0.6 # Exponent that determines how much prioritization is used
-        self.per_beta_min = 0.4 # Starting value of importance sampling correction
-        self.per_beta_max = 1.0 # Final value of beta after annealing
-        self.per_beta_anneal_steps = 50e6 # Number of steps to anneal beta over
-        self.per_epsilon = 0.025 # Small positive constant to prevent zero priority
-        
-        self.beta_anneal = (self.per_beta_max - self.per_beta_min) / self.per_beta_anneal_steps
-        self.per_beta = self.per_beta_min
-        self.sumtree = SumTree(capacity)
-        self.memory_length = 0
-
-    def update_beta(self):
-        # Importance sampling exponent beta increases linearly during training
-        self.per_beta = min(self.per_beta + self.beta_anneal, self.per_beta_max)
-
-    def push(self, *args):
-        '''Save a transition'''
-        priority = 1 # Max priority with TD error clipping
-        self.sumtree.add(priority, Transition(*args))
-        if self.memory_length < self.memory_limit: 
-            self.memory_length += 1
-
-    def _per_sample(self, minibatch_size):
-        # Implement proportional prioritization according to Appendix B.2.1 
-        # of DeepMind's paper "Prioritized Experience Replay"
-        minibatch = []
-        tree_indices = []
-        priorities = []
-        is_weights = []
-
-        # Proportionally sample agent's memory        
-        samples_per_segment = self.sumtree.total() / minibatch_size
-        for segment in range(0, minibatch_size):
-            seg_start = samples_per_segment * segment
-            seg_end = samples_per_segment * (segment + 1)
-            sample = random.uniform(seg_start, seg_end)
-            (tree_idx, priority, experience) = self.sumtree.get(sample)
-            tree_indices.append(tree_idx)
-            priorities.append(priority)
-            minibatch.append(experience)
-        
-        # Calculate and scale weights for importance sampling
-        min_probability = np.min(priorities) / self.sumtree.total()
-        max_weight = (min_probability * self.memory_length) ** (-self.per_beta)
-        # print(self.sumtree.total(), min_probability, max_weight, np.min(priorities))
-        for priority in priorities:
-            probability = priority / self.sumtree.total()
-            weight = (probability * self.memory_length) ** (-self.per_beta)
-            is_weights.append(weight / max_weight)
-            
-        return minibatch, tree_indices, np.array(is_weights)
-
-class DQN(nn.Module):
+class DuelingDDQN(nn.Module):
     def __init__(self, n, m):
-        super(DQN, self).__init__()
+        super(DuelingDDQN, self).__init__()
         self.numActions = n*m
         self.gamma = 0.99
         self.number_of_iterations = 100000
-        self.replay_memory_size = 10000
+        self.replay_memory_size = 100000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
-        self.epsilon_decay = self.number_of_iterations // 3
+        self.epsilon_decay = self.number_of_iterations // 2.5
         self.minibatch_scale = 1
         self.minibatch_size = 32 * self.minibatch_scale
         self.target_update = 8 * self.minibatch_scale
@@ -141,8 +72,8 @@ class DQN(nn.Module):
         self.bn2 = nn.BatchNorm2d(64)
         self.conv3 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad3)
         self.bn3 = nn.BatchNorm2d(64)
-        self.conv4 = nn.Conv2d(64, 256, kernel_size = 3, stride = 1, padding = self.pad4)
-        self.bn4 = nn.BatchNorm2d(256)
+        self.conv4 = nn.Conv2d(64, 512, kernel_size = 3, stride = 1, padding = self.pad4)
+        self.bn4 = nn.BatchNorm2d(512)
         # self.conv5 = nn.Conv2d(128, 512, kernel_size = 3, stride = 1, padding = self.pad5)
         # self.bn5 = nn.BatchNorm2d(512)
         
@@ -157,9 +88,10 @@ class DQN(nn.Module):
         # Will require tweaking if using uneven padding
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3) + 2 * self.pad4, 3)
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3) + 2 * self.pad4, 3)
-        linear_input_size = convw * convh * 256
+        linear_input_size = convw * convh * 512
         
-        self.fc1 = nn.Linear(linear_input_size, self.numActions)
+        self.Value_Stream = nn.Linear(linear_input_size, 1)
+        self.Advantage = nn.Linear(linear_input_size, self.numActions)
 
     def forward(self, x):
         x = x.to(device)
@@ -180,9 +112,10 @@ class DQN(nn.Module):
         
         # x = F.relu(self.conv3(x))
         x = x.view(x.size()[0], -1)
-        x = self.fc1(x)
+        V = self.Value_Stream(x)
+        A = self.Advantage(x)
 
-        return x
+        return V, A
 
 def format_state(grid):
     state = torch.tensor(grid, dtype = torch.float, device = device)
@@ -205,9 +138,9 @@ def train(n, m, mineWeight, start):
     iteration = 0
     num_episodes = 0
 
-    policy_net = DQN(n, m).to(device)
+    policy_net = DuelingDDQN(n, m).to(device)
     policy_net.apply(init_weights)
-    target_net = DQN(n, m).to(device)
+    target_net = DuelingDDQN(n, m).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
@@ -215,7 +148,7 @@ def train(n, m, mineWeight, start):
     optimizer = optim.Adam(policy_net.parameters(), lr = 1e-6)
     # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience = 1000, verbose = True, factor = 0.66666667)
     # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = policy_net.number_of_iterations // 1.25, gamma = .1, verbose = True)
-    # scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr = 1e-5, total_steps = policy_net.number_of_iterations, verbose = True, anneal_strategy = 'cos')
+    # scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr = 1e-3, total_steps = policy_net.number_of_iterations, verbose = True, anneal_strategy = 'cos')
 
     # initialize loss
     criterion = nn.SmoothL1Loss()
@@ -224,8 +157,8 @@ def train(n, m, mineWeight, start):
     game = ms(n, m, mineWeight)
 
     # initialize replay memory
-    # memory = ReplayMemory(policy_net.replay_memory_size)
-    memory = PER(policy_net.replay_memory_size)
+    # memory = mr.ReplayMemory(policy_net.replay_memory_size)
+    memory = mr.PER(policy_net.replay_memory_size)
 
     # initial state
     # game.aid()
@@ -245,7 +178,7 @@ def train(n, m, mineWeight, start):
         epsilon = policy_net.final_epsilon + (policy_net.initial_epsilon - policy_net.final_epsilon) * math.exp(-1. * iteration / policy_net.epsilon_decay)
 
         # get output from the neural network
-        output = policy_net(state)
+        _, A_initial = policy_net(state)
 
         # epsilon greedy exploration
         random_action = random.random() <= epsilon
@@ -263,7 +196,8 @@ def train(n, m, mineWeight, start):
                 # t.max(1) will return largest column value of each row.
                 # second column on max result is index of where max element was
                 # found, so we pick action with the larger expected reward.
-                action_idx = output.max(1)[1].view(1, 1)
+                action_idx = A_initial.max(1)[1].view(1, 1)
+                # action_idx = torch.argmax(A)
 
         action = (action_idx.item() % game.cols, action_idx.item() // game.cols)
 
@@ -279,11 +213,13 @@ def train(n, m, mineWeight, start):
 
         # Store the transition in memory
         memory.push(state, action_idx, next_state, reward, terminal)
-        # memory.push((state, action_idx, next_state, reward, terminal))
 
         # epsilon decay
         # epsilon = epsilon_decay[iteration]
         
+        if iteration < policy_net.minibatch_size:
+            iteration += 1
+            continue
         # sample random minibatch
         # transitions = memory.sample(min(policy_net.minibatch_size, len(memory)))
         transitions, tree_indices, is_weights = memory._per_sample(min(policy_net.minibatch_size, iteration + 1))
@@ -302,12 +238,16 @@ def train(n, m, mineWeight, start):
         action_minibatch = torch.cat(minibatch.action_idx)
         reward_minibatch = torch.cat(minibatch.reward)
         next_state_minibatch = torch.cat(minibatch.next_state)
+        terminal = torch.tensor(minibatch.terminal, device = device, dtype = torch.int)
+        # print(terminal)
 
-        # get output for the next state
-        next_output = target_net(next_state_minibatch)
-
+        # get outputs for the Q calculation
+        V, A = policy_net(state_minibatch)
+        V_next, A_next = target_net(next_state_minibatch)
+        V_eval, A_eval = policy_net(next_state_minibatch)
+        
         # set y_j = reward if game ends, otherwise y_j = reward + gamma * max(Q)
-        y_minibatch = torch.cat(tuple(reward_minibatch[i] + (1 - minibatch.terminal[i]) * policy_net.gamma * torch.max(next_output[i]) for i in range(len(minibatch.state))))
+        y_minibatch = torch.cat(tuple(reward_minibatch[i] + (1 - minibatch.terminal[i]) * policy_net.gamma * torch.max(A_next[i]) for i in range(len(minibatch.state))))
 
         # null_reward = torch.tensor([0], device = device, dtype = torch.float32)
 
@@ -328,14 +268,36 @@ def train(n, m, mineWeight, start):
 
         
         # extract Q-value
-        q_value = policy_net(state_minibatch).gather(1, action_minibatch).squeeze(1)
-        
+        # q_value = policy_net(state_minibatch).gather(1, action_minibatch).squeeze(1)
+        indices = np.arange(policy_net.minibatch_size)
+        # q_pred = torch.add(V, (A - A.mean(dim = 1, keepdim = True)))
+        # print(q_pred, q_pred.size(),[indices, action_minibatch])
+
+        q_pred = torch.add(V, (A - A.mean(dim = 1, keepdim = True)))[indices, action_minibatch]
+        q_next = torch.add(V_next, (A_next - A_next.mean(dim = 1, keepdim = True)))
+        q_eval = torch.add(V_eval, (A_eval - A_eval.mean(dim = 1, keepdim = True)))
+
+
+        max_actions = torch.argmax(q_eval, dim = 1)
+
+        q_target = reward_minibatch + torch.logical_not(terminal).int() * policy_net.gamma * q_next[indices, max_actions]
+        # print(terminal, torch.logical_not(terminal).int())
+        # q_value = reward_minibatch + (1 - minibatch.terminal) * policy_net.gamma * torch.max(q_next)
+
+        # loss = criterion(q_target, q_pred)
+
+        q_value = A.gather(1, action_minibatch).squeeze(1)
+
         # Update sum tree with new priorities of sampled experiences
+        # td_error = q_pred - q_target
         td_error = q_value - y_minibatch
-        td_error = torch.clip(td_error, -1, 1) # Clip for stability
-        priority = (torch.abs(td_error) + memory.per_epsilon)  ** memory.per_alpha
-        for i in range(min(policy_net.minibatch_size, iteration)):
-            memory.sumtree.update(tree_indices[i], priority[i])
+        # td_error = torch.clip(td_error, -1, 1) # Clip for stability
+        td_error = torch.clip(td_error, memory.per_epsilon, 1) # Clip for stability
+        # priority = (torch.abs(td_error) + memory.per_epsilon)  ** memory.per_alpha
+        priority = td_error ** memory.per_alpha
+        for i in range(policy_net.minibatch_size):
+            # print(priority.size())
+            memory.sumtree.update(tree_indices[i], priority[i].item())
         
         # Anneal PER Beta for IS weights
         if iteration >= policy_net.minibatch_size == 0:
@@ -348,7 +310,8 @@ def train(n, m, mineWeight, start):
         # compute loss
         # loss = criterion(q_value, y_minibatch)
         # Apply importance sampling weights during loss calculation
-        loss = (torch.FloatTensor(is_weights) * criterion(q_value, y_minibatch)).mean()
+        # loss = (torch.FloatTensor(is_weights) * criterion(q_value, y_minibatch)).mean()
+        loss = (torch.FloatTensor(is_weights).to(device) * criterion(q_target, q_pred)).mean()
         
         l.append(loss.item())
         
@@ -367,7 +330,7 @@ def train(n, m, mineWeight, start):
 
         print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, 
                 "\nAction:", action, "\nReward:", reward.cpu().numpy()[0][0], 
-                "\nQ max:", np.max(output.cpu().detach().numpy()),
+                "\nQ max:", np.max(A.cpu().detach().numpy()),
                 f'\nLoss: {loss}\n')
 
         # Update target network if enough games have been played
@@ -409,10 +372,11 @@ def test(model, n, m, mineWeight):
 
     while True:
         # get output from the neural network
-        output = model(state)
+        _, A = model(state)
         
         # get corresponding action from neural network output
-        action_idx = torch.argmax(output)
+        action_idx = torch.argmax(A)
+        # action_idx = A.max(1)[1].view(1, 1).item()
         action = (action_idx.item() % game.cols, action_idx.item() // game.cols)
 
         # get next state
@@ -438,7 +402,7 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            f'pretrained_model/current_model_100000.pth',
+            f'pretrained_model/current_model_10000.pth',
             map_location = device).eval()
         
         return test(model, n, m, mineWeight)
