@@ -90,7 +90,7 @@ class minesweeper():
         img.show()
 
     def condensed(self):
-        return [self.view, (self.view == 9).astype(int)]
+        return [self.view, (self.view != 9).astype(int)]
 
     def one_hot(self, grid):
         state = []
@@ -152,7 +152,9 @@ class minesweeper():
             # negative reward for choosing square in the middle of no where
             if len(sub[sub == 9]) == sub.size:
                 reward = -.1 / 4
+                # reward = -1
                 # reward = .1 / 8
+                # reward = 0
             else:
                 reward = .1
             self.reveal(coord)

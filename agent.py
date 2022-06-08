@@ -15,8 +15,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import torch.nn.functional as F
-from SumTree import SumTree
-from collections import namedtuple, deque
 import random
 import os
 import time
@@ -28,27 +26,24 @@ import MemoryReplay as mr
 # if gpu is to be used
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-Transition = namedtuple('Transition',
-                        ('state', 'action_idx', 'next_state', 'reward', 'terminal'))
-
-class DuelingDDQN(nn.Module):
+class DDQN(nn.Module):
     def __init__(self, n, m):
-        super(DuelingDDQN, self).__init__()
-        self.numActions = n*m
+        super(DDQN, self).__init__()
+        self.numActions = n * m
         self.gamma = 0.99
         self.number_of_iterations = 100000
-        self.replay_memory_size = 100000
+        self.replay_memory_size = 10000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
-        self.epsilon_decay = self.number_of_iterations // 2.5
+        self.epsilon_decay = self.number_of_iterations // 1.5
         self.minibatch_scale = 1
         self.minibatch_size = 32 * self.minibatch_scale
         self.target_update = 8 * self.minibatch_scale
 
-        self.pad1 = 0
-        self.pad2 = 0
+        self.pad1 = 1
+        self.pad2 = 1
         self.pad3 = 1
-        self.pad4 = 1
+        # self.pad4 = 1
         # self.pad5 = 0
 
         # Currently tested with 10x10 (raw/unpadded) pixel image inputs
@@ -59,63 +54,60 @@ class DuelingDDQN(nn.Module):
         # self.pad1 = 'same'
         # self.pad2 = 'same'
         # self.pad3 = 'same'
-        # self.conv1 = nn.Conv2d(9, 64, kernel_size = 5, stride = 1, padding = self.pad1)
-        # self.bn1 = nn.minibatchNorm2d(64)
-        # self.conv1_5 = nn.Conv2d(64, 64, kernel_size = 5, stride = 1, padding = self.pad1)
+        # self.bn = nn.BatchNorm2d(64)
+        # self.conv1 = nn.Conv2d(2, 64, kernel_size = 5, stride = 1, padding = self.pad1)
+        # # self.conv1_5 = nn.Conv2d(64, 64, kernel_size = 5, stride = 1, padding = self.pad1)
         # self.conv2 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad2)
-        # self.bn2 = nn.minibatchNorm2d(64)
         # self.conv3 = nn.Conv2d(64, 1, kernel_size = 1, stride = 1, padding = self.pad3)
 
-        self.conv1 = nn.Conv2d(2, 32, kernel_size = 5, stride = 1, padding = self.pad1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size = 3, stride = 1, padding = self.pad2)
+        self.conv1 = nn.Conv2d(2, 64, kernel_size = 3, stride = 1, padding = self.pad1)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad2)
         self.bn2 = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad3)
-        self.bn3 = nn.BatchNorm2d(64)
-        self.conv4 = nn.Conv2d(64, 512, kernel_size = 3, stride = 1, padding = self.pad4)
-        self.bn4 = nn.BatchNorm2d(512)
+        self.conv3 = nn.Conv2d(64, 256, kernel_size = 3, stride = 1, padding = self.pad3)
+        self.bn3 = nn.BatchNorm2d(256)
+        # self.conv4 = nn.Conv2d(64, 512, kernel_size = 3, stride = 1, padding = self.pad4)
+        # self.bn4 = nn.BatchNorm2d(512)
         # self.conv5 = nn.Conv2d(128, 512, kernel_size = 3, stride = 1, padding = self.pad5)
         # self.bn5 = nn.BatchNorm2d(512)
-        
-        # CHANGE NN STRUCTURE -- MAKE MORE LAYERS WITH LESS FILTERS??  
-        # INCREASE MINIBATCH SIZE??
 
         # Number of Linear input connections depends on output of conv2d layers
         # and therefore the input image size, so compute it.
         def conv2d_size_out(size, kernel_size, stride = 1):
             return (size - (kernel_size - 1) - 1) // stride  + 1
         
-        # Will require tweaking if using uneven padding
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3) + 2 * self.pad4, 3)
-        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2 * self.pad1, 5) + 2 * self.pad2, 3) + 2 * self.pad3, 3) + 2 * self.pad4, 3)
-        linear_input_size = convw * convh * 512
+        # # Will require tweaking if using uneven padding
+        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2 * self.pad1, 3) + 2 * self.pad2, 3) + 2 * self.pad3, 3)
+        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2 * self.pad1, 3) + 2 * self.pad2, 3) + 2 * self.pad3, 3)
+        # convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(m + 2 * 1, 3) + 2 * 1, 3) + 2 * 1, 3)
+        # convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(n + 2 * 1, 3) + 2 * 1, 3) + 2 * 1, 3)
+        linear_input_size = convw * convh * 256
         
-        self.Value_Stream = nn.Linear(linear_input_size, 1)
-        self.Advantage = nn.Linear(linear_input_size, self.numActions)
+        self.fc1 = nn.Linear(linear_input_size, self.numActions)
 
     def forward(self, x):
         x = x.to(device)
         x = F.relu(self.bn1(self.conv1(x)))
-        # x = F.relu(self.bn1(self.conv1_5(x)))
-        # x = F.relu(self.bn2(self.conv2(x)))
-        # x = F.relu(self.bn2(self.conv2(x)))
         x = F.relu(self.bn2(self.conv2(x)))
-        # x = F.relu(self.bn2(self.conv2(x)))
-        # x = F.relu(self.bn3(self.conv3(x)))
         x = F.relu(self.bn3(self.conv3(x)))
-        # x = F.relu(self.bn3(self.conv3(x)))
-        # x = F.relu(self.bn3(self.conv3(x)))
-        # x = F.relu(self.bn3(self.conv3(x)))
         
-        x = F.relu(self.bn4(self.conv4(x)))
-        # x = F.relu(self.bn5(self.conv5(x)))
+        # x = F.relu(self.bn4(self.conv4(x)))
         
-        # x = F.relu(self.conv3(x))
         x = x.view(x.size()[0], -1)
-        V = self.Value_Stream(x)
-        A = self.Advantage(x)
+        # x = self.fc1(x)
+        x = self.fc1(x)
 
-        return V, A
+        # x = F.relu(self.bn(self.conv1(x)))
+        # x = F.relu(self.bn(self.conv2(x)))
+        # x = F.relu(self.bn(self.conv2(x)))
+        # x = F.relu(self.bn(self.conv2(x)))
+        # x = F.relu(self.bn(self.conv2(x)))
+        # x = F.relu(self.bn(self.conv2(x)))
+        # x = F.relu(self.bn(self.conv2(x)))
+        # x = self.conv3(x)
+        # x = x.view(x.size()[0], -1)
+
+        return x
 
 def format_state(grid):
     state = torch.tensor(grid, dtype = torch.float, device = device)
@@ -138,17 +130,17 @@ def train(n, m, mineWeight, start):
     iteration = 0
     num_episodes = 0
 
-    policy_net = DuelingDDQN(n, m).to(device)
+    policy_net = DDQN(n, m).to(device)
     policy_net.apply(init_weights)
-    target_net = DuelingDDQN(n, m).to(device)
+    target_net = DDQN(n, m).to(device)
     target_net.load_state_dict(policy_net.state_dict())
     target_net.eval()
 
     # define Adam optimizer
     optimizer = optim.Adam(policy_net.parameters(), lr = 1e-6)
+    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = policy_net.number_of_iterations // 3.1, gamma = .5, verbose = True)
     # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience = 1000, verbose = True, factor = 0.66666667)
-    # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size = policy_net.number_of_iterations // 1.25, gamma = .1, verbose = True)
-    # scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr = 1e-3, total_steps = policy_net.number_of_iterations, verbose = True, anneal_strategy = 'cos')
+    scheduler = optim.lr_scheduler.OneCycleLR(optimizer, max_lr = 1e-5, total_steps = policy_net.number_of_iterations, verbose = True, anneal_strategy = 'cos')
 
     # initialize loss
     criterion = nn.SmoothL1Loss()
@@ -158,7 +150,7 @@ def train(n, m, mineWeight, start):
 
     # initialize replay memory
     # memory = mr.ReplayMemory(policy_net.replay_memory_size)
-    memory = mr.PER(policy_net.replay_memory_size)
+    memory = mr.PER(policy_net.replay_memory_size, policy_net.number_of_iterations // 1.15)
 
     # initial state
     # game.aid()
@@ -178,7 +170,7 @@ def train(n, m, mineWeight, start):
         epsilon = policy_net.final_epsilon + (policy_net.initial_epsilon - policy_net.final_epsilon) * math.exp(-1. * iteration / policy_net.epsilon_decay)
 
         # get output from the neural network
-        _, A_initial = policy_net(state)
+        output = policy_net(state)
 
         # epsilon greedy exploration
         random_action = random.random() <= epsilon
@@ -196,7 +188,7 @@ def train(n, m, mineWeight, start):
                 # t.max(1) will return largest column value of each row.
                 # second column on max result is index of where max element was
                 # found, so we pick action with the larger expected reward.
-                action_idx = A_initial.max(1)[1].view(1, 1)
+                action_idx = output.max(1)[1].view(1, 1)
                 # action_idx = torch.argmax(A)
 
         action = (action_idx.item() % game.cols, action_idx.item() // game.cols)
@@ -227,74 +219,66 @@ def train(n, m, mineWeight, start):
         # Transpose the minibatch (see https://stackoverflow.com/a/19343/3343043 for
         # detailed explanation). This converts minibatch-array of Transitions
         # to Transition of minibatch-arrays.
-        minibatch = Transition(*zip(*transitions))
+        # minibatch = Transition(*zip(*transitions))
 
         # Debugging stuff
-        # if iteration == model.number_of_iterations-1:
+        # if iteration == model.number_of_iterations - 1:
         #     print(transitions)
 
         # Unpack minibatch
-        state_minibatch = torch.cat(minibatch.state)
-        action_minibatch = torch.cat(minibatch.action_idx)
-        reward_minibatch = torch.cat(minibatch.reward)
-        next_state_minibatch = torch.cat(minibatch.next_state)
-        terminal = torch.tensor(minibatch.terminal, device = device, dtype = torch.int)
-        # print(terminal)
+        # state_minibatch = torch.cat(minibatch.state)
+        # action_minibatch = torch.cat(minibatch.action_idx)
+        # reward_minibatch = torch.cat(minibatch.reward)
+        # next_state_minibatch = torch.cat(minibatch.next_state)
+        # terminal_minibatch = torch.tensor(minibatch.terminal, device = device, dtype = torch.int)
 
+        state_minibatch, action_minibatch, reward_minibatch, next_state_minibatch, terminal_minibatch = memory.unpack_minibatch(transitions)
+
+        # get output for the next state
+        next_output = target_net(next_state_minibatch)
+        
         # get outputs for the Q calculation
-        V, A = policy_net(state_minibatch)
-        V_next, A_next = target_net(next_state_minibatch)
-        V_eval, A_eval = policy_net(next_state_minibatch)
+        # V, A = policy_net(state_minibatch)
+        # V_next, A_next = target_net(next_state_minibatch)
+        # V_eval, A_eval = policy_net(next_state_minibatch)
         
         # set y_j = reward if game ends, otherwise y_j = reward + gamma * max(Q)
-        y_minibatch = torch.cat(tuple(reward_minibatch[i] + (1 - minibatch.terminal[i]) * policy_net.gamma * torch.max(A_next[i]) for i in range(len(minibatch.state))))
-
-        # null_reward = torch.tensor([0], device = device, dtype = torch.float32)
-
-        # y_minibatch = torch.cat(tuple(
-        #                         # set y_j to 0 if stepped on mine or duplicate
-        #                         null_reward if reward_minibatch[i] == -1
-
-        #                         # # set y_j to reward if game is won
-        #                         # else reward_minibatch[i] if minibatch.terminal[i]
-
-        #                          # set y_j = reward + gamma * max(Q) if stepped on non-mine and set y_j = reward if game is won
-        #                         else reward_minibatch[i] + (1 - minibatch.terminal[i]) * policy_net.gamma * torch.max(next_output[i])
-                                
-        #                         for i in range(len(minibatch.state))))
+        y_minibatch = torch.cat(tuple(
+            reward_minibatch[i] + torch.logical_not(terminal_minibatch[i]).int() * policy_net.gamma * torch.max(next_output[i])
+            for i in range(len(state_minibatch))))
 
         # returns a new Tensor, detached from the current graph, the result will never require gradient
         y_minibatch = y_minibatch.detach()
 
         
         # extract Q-value
-        # q_value = policy_net(state_minibatch).gather(1, action_minibatch).squeeze(1)
-        indices = np.arange(policy_net.minibatch_size)
-        # q_pred = torch.add(V, (A - A.mean(dim = 1, keepdim = True)))
-        # print(q_pred, q_pred.size(),[indices, action_minibatch])
+        q_value = policy_net(state_minibatch).gather(1, action_minibatch).squeeze(1)
+        
+        # indices = np.arange(policy_net.minibatch_size)
+        # # q_pred = torch.add(V, (A - A.mean(dim = 1, keepdim = True)))
+        # # print(q_pred, q_pred.size(),[indices, action_minibatch])
 
-        q_pred = torch.add(V, (A - A.mean(dim = 1, keepdim = True)))[indices, action_minibatch]
-        q_next = torch.add(V_next, (A_next - A_next.mean(dim = 1, keepdim = True)))
-        q_eval = torch.add(V_eval, (A_eval - A_eval.mean(dim = 1, keepdim = True)))
+        # q_pred = torch.add(V, (A - A.mean(dim = 1, keepdim = True)))[indices, action_minibatch]
+        # q_next = torch.add(V_next, (A_next - A_next.mean(dim = 1, keepdim = True)))
+        # q_eval = torch.add(V_eval, (A_eval - A_eval.mean(dim = 1, keepdim = True)))
 
 
-        max_actions = torch.argmax(q_eval, dim = 1)
+        # max_actions = torch.argmax(q_eval, dim = 1)
 
-        q_target = reward_minibatch + torch.logical_not(terminal).int() * policy_net.gamma * q_next[indices, max_actions]
-        # print(terminal, torch.logical_not(terminal).int())
-        # q_value = reward_minibatch + (1 - minibatch.terminal) * policy_net.gamma * torch.max(q_next)
+        # q_target = reward_minibatch + torch.logical_not(terminal_minibatch).int() * policy_net.gamma * q_next[indices, max_actions]
+        # # print(terminal, torch.logical_not(terminal).int())
+        # # q_value = reward_minibatch + (1 - minibatch.terminal) * policy_net.gamma * torch.max(q_next)
 
-        # loss = criterion(q_target, q_pred)
+        # # loss = criterion(q_target, q_pred)
 
-        q_value = A.gather(1, action_minibatch).squeeze(1)
+        # q_value = A.gather(1, action_minibatch).squeeze(1)
 
         # Update sum tree with new priorities of sampled experiences
-        # td_error = q_pred - q_target
         td_error = q_value - y_minibatch
-        # td_error = torch.clip(td_error, -1, 1) # Clip for stability
-        td_error = torch.clip(td_error, memory.per_epsilon, 1) # Clip for stability
-        # priority = (torch.abs(td_error) + memory.per_epsilon)  ** memory.per_alpha
-        priority = td_error ** memory.per_alpha
+        # td_error = q_target - q_pred
+        # td_error = q_target - q_value
+        abs_td_error = torch.clip(td_error, memory.per_epsilon, 1) # Clip for stability
+        priority = abs_td_error ** memory.per_alpha
         for i in range(policy_net.minibatch_size):
             # print(priority.size())
             memory.sumtree.update(tree_indices[i], priority[i].item())
@@ -310,8 +294,8 @@ def train(n, m, mineWeight, start):
         # compute loss
         # loss = criterion(q_value, y_minibatch)
         # Apply importance sampling weights during loss calculation
-        # loss = (torch.FloatTensor(is_weights) * criterion(q_value, y_minibatch)).mean()
-        loss = (torch.FloatTensor(is_weights).to(device) * criterion(q_target, q_pred)).mean()
+        loss = (torch.FloatTensor(is_weights) * criterion(q_value, y_minibatch)).mean()
+        # loss = (torch.FloatTensor(is_weights).to(device) * criterion(q_target, q_pred)).mean()
         
         l.append(loss.item())
         
@@ -323,29 +307,30 @@ def train(n, m, mineWeight, start):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        # scheduler.step(loss)
+        scheduler.step()
 
         state = next_state
         iteration += 1
 
-        print("Iteration:", iteration, "\nElapsed time:", time.time() - start, "\nEpsilon:", epsilon, 
-                "\nAction:", action, "\nReward:", reward.cpu().numpy()[0][0], 
-                "\nQ max:", np.max(A.cpu().detach().numpy()),
-                f'\nLoss: {loss}\n')
+        print("Iteration:", iteration, f'\nElapsed time: {(time.time() - start) / 60} min', "\nEpsilon:", epsilon, 
+            "\nAction:", action, "\nReward:", reward.cpu().numpy()[0][0], 
+            "\nQ max:", np.max(output.cpu().detach().numpy()),
+            f'\nLoss: {loss}\n')
+        # print(scheduler.get_last_lr())
 
         # Update target network if enough games have been played
         if num_episodes % policy_net.target_update == 0:
             num_episodes = 0
             target_net.load_state_dict(policy_net.state_dict())
 
-        # Save model
+        # Save model/Plot data
         if iteration % policy_net.number_of_iterations == 0:
             torch.save(policy_net, f'pretrained_model/current_model_{iteration}.pth')
             
             val = policy_net.number_of_iterations // 20
             window = [val if val % 2 == 1 else val + 1][0]
 
-            sl = savgol_filter(l, window, 3)
+            sl = savgol_filter(l, window, 3) # moving average
             plt.plot(l, alpha = .5)
             plt.plot(sl, c = 'tab:blue')
             plt.xlabel("Iteration")
@@ -372,10 +357,10 @@ def test(model, n, m, mineWeight):
 
     while True:
         # get output from the neural network
-        _, A = model(state)
+        output = model(state)
         
         # get corresponding action from neural network output
-        action_idx = torch.argmax(A)
+        action_idx = torch.argmax(output)
         # action_idx = A.max(1)[1].view(1, 1).item()
         action = (action_idx.item() % game.cols, action_idx.item() // game.cols)
 
@@ -402,7 +387,7 @@ def test(model, n, m, mineWeight):
 def main(mode, n, m, mineWeight):
     if mode == 'test':
         model = torch.load(
-            f'pretrained_model/current_model_10000.pth',
+            f'pretrained_model/current_model_100000.pth',
             map_location = device).eval()
         
         return test(model, n, m, mineWeight)
