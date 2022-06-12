@@ -23,7 +23,7 @@ class minesweeper():
         # Create game layout
         # Place mines
         for i,_ in np.ndenumerate(self.grid):
-            if rd.randint(0,np.size(self.grid)) <= self.mineWeight:
+            if rd.randint(0, np.size(self.grid)) <= self.mineWeight:
                 self.grid[i] = -1
         # Place numbers
         self.sub(self.grid)
@@ -44,7 +44,7 @@ class minesweeper():
                         if np.size(sub) == 0:
                             sub = grid[r:r+2, c:c+2]
                 # if new game, initialize grid numbers
-                if self.found == 0:
+                if not self.history:
                     self.grid[i] = len(sub[sub == -1])
                 subs[i] = sub
         if self.found == 0:
@@ -133,14 +133,14 @@ class minesweeper():
 
     def move(self, coord):
         terminal = False
-        reward = 0
+        reward = 0.
         previous_score = len(set(self.history))
         wins = self.wins
         self.history.append(coord)
 
         if self.grid[coord] == -1 or self.history.count(coord) > 1:
             # print('\nGame Over :(\n')
-            reward = -1
+            reward = -1.
             terminal = True
         # elif self.history.count(coord) > 1:
             # print('Duplicate entry. Try again :/\n')
@@ -151,19 +151,19 @@ class minesweeper():
             sub = self.sub(self.view)[coord]
             # negative reward for choosing square in the middle of no where
             if len(sub[sub == 9]) == sub.size:
-                reward = -.1 / 4
+                reward = -.25
                 # reward = -1
-                # reward = .1 / 8
-                # reward = 0
+                # reward = .1 / 8.
+                # reward = 0.
             else:
-                reward = .1
+                reward = .5
             self.reveal(coord)
             self.found += (len(set(self.history)) - previous_score)
             # reward = .1
             # reward += .1*(self.found - self.num_aided - 1)
         if self.found == self.nonCount:
             # print('You Win! :)\n')
-            reward = 1
+            reward = 1.
             terminal = True
             wins += 1
         
@@ -232,7 +232,7 @@ class minesweeper():
             #     print('You Win!')
 
 if __name__ == '__main__':
-    g = minesweeper(10, 10, .2)
+    g = minesweeper(5, 5, .2)
     # g.showGrid(g.grid, interactive = False)
     # print(g.grid)
     # g.play()
@@ -254,12 +254,14 @@ if __name__ == '__main__':
     # plt.show()
     # print(np.mean(data))
     
+    # print(g.grid, g.sub(g.grid))
+
     data = []
     i = 0
     while i < 5000:
         print(i)
         g.move(g.choose())
-        data.append(g.found-g.num_aided)
+        data.append(g.found - g.num_aided)
         i += 1
     print(f'Average Score: {np.mean(data)}', f'Wins: {g.wins}')
     smooth_data = savgol_filter(data, 501, 3)
@@ -283,3 +285,6 @@ if __name__ == '__main__':
     # print(f'Max score: {max(score)}\nWins: {g.wins}')
     # plt.hist(score,20)
     # plt.show()
+
+    # print(g.grid)
+    # g.play(mode = 'interactive', show = True)

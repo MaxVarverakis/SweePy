@@ -31,7 +31,7 @@ class DDQN(nn.Module):
         super(DDQN, self).__init__()
         self.numActions = n * m
         self.gamma = 0.99
-        self.number_of_iterations = 100000
+        self.number_of_iterations = 1000000
         self.replay_memory_size = 10000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
@@ -46,8 +46,6 @@ class DDQN(nn.Module):
         # self.pad4 = 1
         # self.pad5 = 0
 
-        # Currently tested with 10x10 (raw/unpadded) pixel image inputs
-
         # self.pd = nn.ConstantPad2d(self.pad_size, 225)
 
         # Alex M Version
@@ -59,12 +57,15 @@ class DDQN(nn.Module):
         # # self.conv1_5 = nn.Conv2d(64, 64, kernel_size = 5, stride = 1, padding = self.pad1)
         # self.conv2 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad2)
         # self.conv3 = nn.Conv2d(64, 1, kernel_size = 1, stride = 1, padding = self.pad3)
+        
+        if torch.backends.cudnn.is_available():
+            torch.backends.cudnn.benchmark = True
 
-        self.conv1 = nn.Conv2d(2, 64, kernel_size = 3, stride = 1, padding = self.pad1)
+        self.conv1 = nn.Conv2d(2, 64, kernel_size = 3, stride = 1, padding = self.pad1, bias = False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.conv2 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad2)
+        self.conv2 = nn.Conv2d(64, 64, kernel_size = 3, stride = 1, padding = self.pad2, bias = False)
         self.bn2 = nn.BatchNorm2d(64)
-        self.conv3 = nn.Conv2d(64, 256, kernel_size = 3, stride = 1, padding = self.pad3)
+        self.conv3 = nn.Conv2d(64, 256, kernel_size = 3, stride = 1, padding = self.pad3, bias = False)
         self.bn3 = nn.BatchNorm2d(256)
         # self.conv4 = nn.Conv2d(64, 512, kernel_size = 3, stride = 1, padding = self.pad4)
         # self.bn4 = nn.BatchNorm2d(512)
@@ -110,25 +111,26 @@ class DDQN(nn.Module):
         return x
 
 def format_state(grid):
-    state = torch.tensor(grid, dtype = torch.float, device = device)
+    state = torch.tensor(np.array(grid), dtype = torch.float, device = device)
     return state.unsqueeze(0)
 
 def imTensor(image):
     # convert image data to tensor and add channel dimension
-    image = torch.reshape(torch.from_numpy(image), (1, 10, 10))
-    image = image.to(device)
+    image = torch.reshape(torch.from_numpy(image), (1, 10, 10), device = device)
+    image = image
     # unsqueeze to add minibatch dimension | final image shape (B,C,H,W) : (1,1,10,10)
     return image.unsqueeze(0).float()
 
 def init_weights(m):
     if type(m) == nn.Conv2d or type(m) == nn.Linear:
         nn.init.uniform_(m.weight, -0.01, 0.01)
-        m.bias.data.fill_(0.01)
+        # m.bias.data.fill_(0.01)
 
 def train(n, m, mineWeight, start):
 
     iteration = 0
     num_episodes = 0
+    total_episodes = 1
 
     policy_net = DDQN(n, m).to(device)
     policy_net.apply(init_weights)
@@ -201,6 +203,7 @@ def train(n, m, mineWeight, start):
         
         # +1 for the number of games played
         if terminal:
+            total_episodes += 1
             num_episodes += 1
 
         # Store the transition in memory
@@ -294,7 +297,7 @@ def train(n, m, mineWeight, start):
         # compute loss
         # loss = criterion(q_value, y_minibatch)
         # Apply importance sampling weights during loss calculation
-        loss = (torch.FloatTensor(is_weights) * criterion(q_value, y_minibatch)).mean()
+        loss = (torch.FloatTensor(is_weights).to(device) * criterion(q_value, y_minibatch).to(device)).mean()
         # loss = (torch.FloatTensor(is_weights).to(device) * criterion(q_target, q_pred)).mean()
         
         l.append(loss.item())
@@ -304,7 +307,9 @@ def train(n, m, mineWeight, start):
         # print(f'Loss: {loss}\nModel: {model(state_minibatch)}\nAction: {action_minibatch}\nQ: {q_value}\nY: {y_minibatch}')
         
         # backward pass
-        optimizer.zero_grad()
+        for param in policy_net.parameters():
+            param.grad = None
+        # optimizer.zero_grad()
         loss.backward()
         optimizer.step()
         scheduler.step()
@@ -312,8 +317,15 @@ def train(n, m, mineWeight, start):
         state = next_state
         iteration += 1
 
-        print("Iteration:", iteration, f'\nElapsed time: {(time.time() - start) / 60} min', "\nEpsilon:", epsilon, 
-            "\nAction:", action, "\nReward:", reward.cpu().numpy()[0][0], 
+        elapsed = time.time() - start
+        time_passed = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+
+        print("Iteration:", iteration, 
+            f'\nElapsed time: {time_passed}', 
+            "\nEpsilon:", epsilon, 
+            "\nTotal Episodes:", total_episodes, 
+            # "\nAction:", action, 
+            "\nReward:", reward.cpu().numpy()[0][0], 
             "\nQ max:", np.max(output.cpu().detach().numpy()),
             f'\nLoss: {loss}\n')
         # print(scheduler.get_last_lr())
@@ -339,8 +351,11 @@ def train(n, m, mineWeight, start):
 
             
 
-def test(model, n, m, mineWeight):
+def test(model, n, m, mineWeight, watch = False):
     game = ms(n, m, mineWeight)
+
+    if watch:
+        print(game.grid)
 
     mines = game.mineCount
 
@@ -359,6 +374,7 @@ def test(model, n, m, mineWeight):
         # get output from the neural network
         output = model(state)
         
+
         # get corresponding action from neural network output
         action_idx = torch.argmax(output)
         # action_idx = A.max(1)[1].view(1, 1).item()
@@ -373,6 +389,9 @@ def test(model, n, m, mineWeight):
 
         score.append(game.found - game.num_aided)
 
+        if watch:
+            print(game.view, action)
+
         if terminal:
             # print(f'Score: {max(score)}')
             break
@@ -384,13 +403,13 @@ def test(model, n, m, mineWeight):
         # debugging stuff
         # print(game.view)
 
-def main(mode, n, m, mineWeight):
+def main(mode, n, m, mineWeight, watch = False):
     if mode == 'test':
         model = torch.load(
-            f'pretrained_model/current_model_100000.pth',
+            f'pretrained_model/current_model_1000000.pth',
             map_location = device).eval()
         
-        return test(model, n, m, mineWeight)
+        return test(model, n, m, mineWeight, watch)
 
     elif mode == 'train':
         if not os.path.exists('pretrained_model/'):
@@ -403,9 +422,9 @@ def main(mode, n, m, mineWeight):
 
 if __name__ == '__main__':
 
-    params = [10, 10, .2]
+    params = [5, 5, .2]
     
-    main('train', *params)
+    # main('train', *params)
     
     # Learning rate tests
     # lrr = np.geomspace(1e-7,1e-1,1000)
@@ -418,6 +437,8 @@ if __name__ == '__main__':
     # plt.xlabel('Learning Rate')
     # plt.ylabel('Loss')
     # plt.show()
+
+    # main('test', *params, watch = True)
 
     score = []
     mines = []
