@@ -31,12 +31,12 @@ class DDQN(nn.Module):
         super(DDQN, self).__init__()
         self.numActions = n * m
         self.gamma = 0.99
-        self.number_of_iterations = 1000000
-        self.replay_memory_size = 10000
+        self.number_of_iterations = 100000000
+        self.replay_memory_size = 100000
         self.initial_epsilon = 1
         self.final_epsilon = 0.001
         self.epsilon_decay = self.number_of_iterations // 1.5
-        self.minibatch_scale = 1
+        self.minibatch_scale = 2
         self.minibatch_size = 32 * self.minibatch_scale
         self.target_update = 8 * self.minibatch_scale
 
@@ -406,7 +406,7 @@ def test(model, n, m, mineWeight, watch = False):
 def main(mode, n, m, mineWeight, watch = False):
     if mode == 'test':
         model = torch.load(
-            f'pretrained_model/current_model_1000000.pth',
+            f'pretrained_model/current_model_100000000.pth',
             map_location = device).eval()
         
         return test(model, n, m, mineWeight, watch)
@@ -424,7 +424,7 @@ if __name__ == '__main__':
 
     params = [5, 5, .2]
     
-    # main('train', *params)
+    main('train', *params)
     
     # Learning rate tests
     # lrr = np.geomspace(1e-7,1e-1,1000)
