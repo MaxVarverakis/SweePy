@@ -18,6 +18,7 @@ import torch.nn.functional as F
 import random
 import os
 import time
+import datetime
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from Minesweeper import minesweeper as ms
@@ -39,6 +40,7 @@ class DDQN(nn.Module):
         self.minibatch_scale = 2
         self.minibatch_size = 32 * self.minibatch_scale
         self.target_update = 8 * self.minibatch_scale
+        self.save_interval = 1e7
 
         self.pad1 = 1
         self.pad2 = 1
@@ -318,7 +320,8 @@ def train(n, m, mineWeight, start):
         iteration += 1
 
         elapsed = time.time() - start
-        time_passed = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        # time_passed = time.strftime("%H:%M:%S", time.gmtime(elapsed))
+        time_passed = datetime.timedelta(seconds = elapsed)
 
         print("Iteration:", iteration, 
             f'\nElapsed time: {time_passed}', 
@@ -335,6 +338,9 @@ def train(n, m, mineWeight, start):
             num_episodes = 0
             target_net.load_state_dict(policy_net.state_dict())
 
+        # Auto Save Model
+        if iteration % policy_net.save_interval == 0:
+            torch.save(policy_net, f'pretrained_model/current_model_{iteration}.pth')
         # Save model/Plot data
         if iteration % policy_net.number_of_iterations == 0:
             torch.save(policy_net, f'pretrained_model/current_model_{iteration}.pth')
